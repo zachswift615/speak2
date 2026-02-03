@@ -8,6 +8,23 @@ struct DictionaryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Error banner
+            if let error = dictionaryState.errorMessage {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .font(.callout)
+                    Spacer()
+                    Button("Dismiss") {
+                        dictionaryState.dismissError()
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding()
+                .background(Color.orange.opacity(0.1))
+            }
+
             // Toolbar
             HStack(spacing: 12) {
                 // Language Picker

@@ -18,6 +18,11 @@ let package = Package(
             resources: [
                 .process("../Resources")
             ]
+        ),
+        .testTarget(
+            name: "Speak2Tests",
+            dependencies: ["Speak2"],
+            path: "Tests/Speak2Tests"
         )
     ]
 )

@@ -49,9 +49,25 @@ actor WhisperTranscriber: TranscriptionEngine {
             throw TranscriptionEngineError.modelNotLoaded
         }
 
-        // Note: WhisperKit's promptTokens feature can cause empty results in some cases.
-        // Dictionary word prioritization is handled via post-processing in DictionaryProcessor.
-        let results = try await whisperKit.transcribe(audioPath: audioURL.path)
+        var results: [TranscriptionResult]
+
+        // Try with vocabulary hint first if provided
+        if let hint = dictionaryHint, !hint.isEmpty {
+            var decodeOptions = DecodingOptions()
+            decodeOptions.promptTokens = whisperKit.tokenizer?.encode(text: hint)
+
+            results = try await whisperKit.transcribe(
+                audioPath: audioURL.path,
+                decodeOptions: decodeOptions
+            )
+
+            // Fallback: if promptTokens caused empty results, retry without
+            if results.isEmpty || results.allSatisfy({ $0.text.trimmingCharacters(in: .whitespaces).isEmpty }) {
+                results = try await whisperKit.transcribe(audioPath: audioURL.path)
+            }
+        } else {
+            results = try await whisperKit.transcribe(audioPath: audioURL.path)
+        }
 
         let transcription = results
             .compactMap { $0.text }

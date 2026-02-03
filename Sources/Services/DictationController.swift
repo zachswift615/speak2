@@ -69,8 +69,11 @@ class DictationController {
 
         Task {
             do {
+                // Use the user's selected language for dictionary processing
+                let selectedLanguage = appState.dictionaryState.selectedLanguage
+
                 // Get dictionary hint for model prompting (mainly for WhisperKit)
-                let dictionaryHint = appState.dictionaryState.promptText(for: .english)
+                let dictionaryHint = appState.dictionaryState.promptText(for: selectedLanguage)
 
                 // Transcribe with dictionary hint
                 var text = try await modelManager.transcribe(
@@ -79,9 +82,9 @@ class DictationController {
                 )
 
                 // Post-process with dictionary entries (applies to all engines)
-                let entries = appState.dictionaryState.enabledEntries(for: .english)
+                let entries = appState.dictionaryState.enabledEntries(for: selectedLanguage)
                 if !entries.isEmpty {
-                    text = dictionaryProcessor.process(text, using: entries, language: .english)
+                    text = dictionaryProcessor.process(text, using: entries, language: selectedLanguage)
                 }
 
                 await MainActor.run {

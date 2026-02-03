@@ -7,6 +7,7 @@ class DictionaryState: ObservableObject {
     @Published var selectedLanguage: SupportedLanguage = .english
     @Published var searchQuery: String = ""
     @Published var selectedCategory: EntryCategory? = nil
+    @Published var errorMessage: String? = nil
 
     private let storage = DictionaryStorage()
 
@@ -30,7 +31,16 @@ class DictionaryState: ObservableObject {
     }
 
     func save() {
-        try? storage.save(entries)
+        do {
+            try storage.save(entries)
+            errorMessage = nil
+        } catch {
+            errorMessage = "Failed to save dictionary. Changes may not persist."
+        }
+    }
+
+    func dismissError() {
+        errorMessage = nil
     }
 
     func add(_ entry: DictionaryEntry) {
