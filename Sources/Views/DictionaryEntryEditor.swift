@@ -14,73 +14,116 @@ struct DictionaryEntryEditor: View {
     @State private var selectedLanguage: SupportedLanguage = .english
 
     private var isEditing: Bool { entry != nil }
+    private var canSave: Bool { !word.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text(isEditing ? "Edit Entry" : "Add Entry")
-                    .font(.headline)
-                Spacer()
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding()
-
-            Divider()
-
-            // Form
-            Form {
-                Section {
-                    TextField("Word", text: $word)
-                        .textFieldStyle(.roundedBorder)
-
-                    TextField("Pronunciation (optional)", text: $pronunciation)
-                        .textFieldStyle(.roundedBorder)
-
-                    TextField("Aliases (comma-separated)", text: $aliases)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                Section {
-                    Picker("Category", selection: $category) {
-                        ForEach(EntryCategory.allCases, id: \.self) { cat in
-                            Label(cat.displayName, systemImage: cat.icon).tag(cat)
-                        }
+            // Form content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // Word field
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Word")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                        TextField("Enter the correct spelling", text: $word)
+                            .textFieldStyle(.plain)
+                            .font(.title3)
+                            .padding(10)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                     }
 
-                    Picker("Language", selection: $selectedLanguage) {
-                        ForEach(SupportedLanguage.allCases, id: \.self) { lang in
-                            Text(lang.displayName).tag(lang)
+                    // Aliases field
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Aliases")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.secondary)
+                            Text("Optional")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        TextField("Common misspellings, separated by commas", text: $aliases)
+                            .textFieldStyle(.plain)
+                            .padding(10)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        Text("e.g., \"Antropik, Ann Tropic\" for Anthropic")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    // Pronunciation field
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Pronunciation Hint")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.secondary)
+                            Text("Optional")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        TextField("How it sounds phonetically", text: $pronunciation)
+                            .textFieldStyle(.plain)
+                            .padding(10)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    }
+
+                    // Category and Language
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Category")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.secondary)
+                            Picker("Category", selection: $category) {
+                                ForEach(EntryCategory.allCases, id: \.self) { cat in
+                                    Label(cat.displayName, systemImage: cat.icon).tag(cat)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Language")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.secondary)
+                            Picker("Language", selection: $selectedLanguage) {
+                                ForEach(SupportedLanguage.allCases, id: \.self) { lang in
+                                    Text(lang.displayName).tag(lang)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
+                .padding(20)
             }
-            .formStyle(.grouped)
-            .padding()
-
-            Divider()
 
             // Footer
             HStack {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.escape, modifiers: [])
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.escape, modifiers: [])
 
                 Spacer()
 
-                Button(isEditing ? "Save" : "Add") {
+                Button(isEditing ? "Save Changes" : "Add Word") {
                     saveEntry()
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: [])
-                .disabled(word.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(!canSave)
             }
-            .padding()
+            .padding(20)
         }
-        .frame(width: 400, height: 380)
+        .frame(width: 420, height: 420)
         .onAppear {
             if let entry = entry {
                 word = entry.word

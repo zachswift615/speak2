@@ -7,75 +7,104 @@ struct QuickAddSheet: View {
     @State private var word: String = ""
     @State private var aliases: String = ""
     @State private var category: EntryCategory = .custom
+    @State private var selectedLanguage: SupportedLanguage = .english
+
+    private var canSave: Bool { !word.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
-        VStack(spacing: 16) {
-            // Header
-            HStack {
-                Text("Quick Add Word")
-                    .font(.headline)
-                Spacer()
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
+        VStack(spacing: 0) {
+            // Form
+            VStack(alignment: .leading, spacing: 20) {
+                // Word field
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Word")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                    TextField("Enter the correct spelling", text: $word)
+                        .textFieldStyle(.plain)
+                        .font(.title3)
+                        .padding(10)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
-            }
 
-            // Word input
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Word")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                TextField("Enter word...", text: $word)
-                    .textFieldStyle(.roundedBorder)
-            }
+                // Aliases field
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Aliases")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                        Text("Optional")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    TextField("Misspellings, separated by commas", text: $aliases)
+                        .textFieldStyle(.plain)
+                        .padding(10)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                }
 
-            // Aliases input
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Aliases (optional)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                TextField("Comma-separated alternatives", text: $aliases)
-                    .textFieldStyle(.roundedBorder)
-            }
+                // Category and Language row
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Category")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                        Picker("Category", selection: $category) {
+                            ForEach(EntryCategory.allCases, id: \.self) { cat in
+                                Label(cat.displayName, systemImage: cat.icon).tag(cat)
+                            }
+                        }
+                        .labelsHidden()
+                    }
 
-            // Category picker
-            Picker("Category", selection: $category) {
-                ForEach(EntryCategory.allCases, id: \.self) { cat in
-                    Text(cat.displayName).tag(cat)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Language")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                        Picker("Language", selection: $selectedLanguage) {
+                            ForEach(SupportedLanguage.allCases, id: \.self) { lang in
+                                Text(lang.displayName).tag(lang)
+                            }
+                        }
+                        .labelsHidden()
+                    }
+
+                    Spacer()
                 }
             }
-            .pickerStyle(.menu)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
 
-            // Language indicator
-            HStack {
-                Text("Language:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(dictionaryState.selectedLanguage.displayName)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                Spacer()
-            }
+            Spacer()
 
-            // Buttons
+            // Footer
             HStack {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.escape, modifiers: [])
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.escape, modifiers: [])
 
                 Spacer()
 
-                Button("Add") {
+                Button("Add Word") {
                     addWord()
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: [])
-                .disabled(word.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(!canSave)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 20)
         }
-        .padding()
-        .frame(width: 300)
+        .frame(width: 340, height: 320)
+        .onAppear {
+            selectedLanguage = dictionaryState.selectedLanguage
+        }
     }
 
     private func addWord() {
@@ -86,7 +115,7 @@ struct QuickAddSheet: View {
 
         let entry = DictionaryEntry(
             word: word.trimmingCharacters(in: .whitespaces),
-            language: dictionaryState.selectedLanguage,
+            language: selectedLanguage,
             aliases: aliasArray,
             category: category
         )

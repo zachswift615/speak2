@@ -5,118 +5,104 @@ struct DictionaryView: View {
     @EnvironmentObject var dictionaryState: DictionaryState
     @State private var showingAddSheet = false
     @State private var editingEntry: DictionaryEntry? = nil
+    @State private var searchText: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
             // Error banner
             if let error = dictionaryState.errorMessage {
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                     Text(error)
-                        .font(.callout)
+                        .font(.subheadline)
                     Spacer()
-                    Button("Dismiss") {
-                        dictionaryState.dismissError()
+                    Button {
+                        withAnimation { dictionaryState.dismissError() }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                 }
-                .padding()
-                .background(Color.orange.opacity(0.1))
+                .padding(12)
+                .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal)
+                .padding(.top, 8)
             }
 
-            // Toolbar
-            HStack(spacing: 12) {
-                // Language Picker
+            // Main content
+            if dictionaryState.filteredEntries.isEmpty && searchText.isEmpty {
+                emptyStateView
+            } else {
+                listView
+            }
+        }
+        .frame(minWidth: 500, minHeight: 400)
+        .background(Color(NSColor.windowBackgroundColor))
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Search words...")
+        .onChange(of: searchText) { _, newValue in
+            dictionaryState.searchQuery = newValue
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                // Language picker
                 Picker("Language", selection: $dictionaryState.selectedLanguage) {
                     ForEach(SupportedLanguage.allCases, id: \.self) { language in
                         Text(language.displayName).tag(language)
                     }
                 }
-                .labelsHidden()
-                .frame(width: 140)
+                .frame(width: 120)
 
-                // Category Filter
-                Picker("Category", selection: $dictionaryState.selectedCategory) {
-                    Text("All Categories").tag(nil as EntryCategory?)
+                // Category filter
+                Menu {
+                    Button {
+                        dictionaryState.selectedCategory = nil
+                    } label: {
+                        if dictionaryState.selectedCategory == nil {
+                            Label("All Categories", systemImage: "checkmark")
+                        } else {
+                            Text("All Categories")
+                        }
+                    }
                     Divider()
                     ForEach(EntryCategory.allCases, id: \.self) { category in
-                        Label(category.displayName, systemImage: category.icon)
-                            .tag(category as EntryCategory?)
+                        Button {
+                            dictionaryState.selectedCategory = category
+                        } label: {
+                            if dictionaryState.selectedCategory == category {
+                                Label(category.displayName, systemImage: "checkmark")
+                            } else {
+                                Label(category.displayName, systemImage: category.icon)
+                            }
+                        }
                     }
-                }
-                .labelsHidden()
-                .frame(width: 160)
-
-                Spacer()
-
-                // Search
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    TextField("Search...", text: $dictionaryState.searchQuery)
-                        .textFieldStyle(.plain)
-                }
-                .padding(6)
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(6)
-                .frame(width: 180)
-
-                // Add Button
-                Button(action: { showingAddSheet = true }) {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.bordered)
-                .help("Add new word")
-
-                // Import/Export Menu
-                Menu {
-                    Button("Export Dictionary...") { exportDictionary() }
-                    Button("Import Dictionary...") { importDictionary() }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Label(
+                        dictionaryState.selectedCategory?.displayName ?? "All",
+                        systemImage: dictionaryState.selectedCategory?.icon ?? "line.3.horizontal.decrease.circle"
+                    )
                 }
-                .menuStyle(.borderlessButton)
-                .frame(width: 30)
-                .help("Import/Export")
-            }
-            .padding()
-            .background(Color(NSColor.windowBackgroundColor))
 
-            Divider()
-
-            // Entry List
-            if dictionaryState.filteredEntries.isEmpty {
-                emptyStateView
-            } else {
-                List {
-                    ForEach(dictionaryState.filteredEntries) { entry in
-                        DictionaryEntryRow(
-                            entry: entry,
-                            onToggle: { dictionaryState.toggle(entry) },
-                            onEdit: { editingEntry = entry },
-                            onDelete: { dictionaryState.delete(entry) }
-                        )
+                // Import/Export
+                Menu {
+                    Button("Import...", systemImage: "square.and.arrow.down") {
+                        importDictionary()
                     }
+                    Button("Export...", systemImage: "square.and.arrow.up") {
+                        exportDictionary()
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
                 }
-                .listStyle(.inset)
-            }
 
-            // Footer
-            HStack {
-                Text("\(dictionaryState.filteredEntries.count) entries")
-                    .foregroundColor(.secondary)
-                    .font(.caption)
-                Spacer()
-                if dictionaryState.entries.count != dictionaryState.filteredEntries.count {
-                    Text("(\(dictionaryState.entries.count) total)")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
+                // Add button
+                Button {
+                    showingAddSheet = true
+                } label: {
+                    Label("Add Word", systemImage: "plus")
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(Color(NSColor.windowBackgroundColor))
         }
         .sheet(isPresented: $showingAddSheet) {
             DictionaryEntryEditor(
@@ -136,20 +122,72 @@ struct DictionaryView: View {
         }
     }
 
+    private var listView: some View {
+        VStack(spacing: 0) {
+            List {
+                ForEach(dictionaryState.filteredEntries) { entry in
+                    DictionaryEntryRow(
+                        entry: entry,
+                        onToggle: { dictionaryState.toggle(entry) },
+                        onEdit: { editingEntry = entry },
+                        onDelete: { dictionaryState.delete(entry) }
+                    )
+                }
+                .onDelete { indexSet in
+                    for index in indexSet {
+                        let entry = dictionaryState.filteredEntries[index]
+                        dictionaryState.delete(entry)
+                    }
+                }
+            }
+            .listStyle(.inset(alternatesRowBackgrounds: true))
+
+            // Footer
+            HStack {
+                Text("\(dictionaryState.filteredEntries.count) words")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !searchText.isEmpty || dictionaryState.selectedCategory != nil {
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                    Text("\(dictionaryState.entries.count) total")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "text.book.closed")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-            Text("No dictionary entries")
-                .font(.title2)
-                .foregroundColor(.secondary)
-            Text("Add words to improve transcription accuracy")
-                .foregroundColor(.secondary)
-            Button("Add First Entry") { showingAddSheet = true }
-                .buttonStyle(.borderedProminent)
+        VStack(spacing: 20) {
+            Image(systemName: "character.book.closed")
+                .font(.system(size: 56, weight: .thin))
+                .foregroundStyle(.tertiary)
+
+            VStack(spacing: 6) {
+                Text("No Words Yet")
+                    .font(.title2)
+                    .fontWeight(.medium)
+                Text("Add words to improve transcription accuracy\nfor names, technical terms, and jargon.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                showingAddSheet = true
+            } label: {
+                Text("Add Your First Word")
+                    .frame(minWidth: 140)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(40)
     }
 
     private func exportDictionary() {

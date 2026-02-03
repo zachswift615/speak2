@@ -13,61 +13,83 @@ struct DictionaryEntryRow: View {
             // Enable toggle
             Button(action: onToggle) {
                 Image(systemName: entry.isEnabled ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(entry.isEnabled ? .accentColor : .secondary)
+                    .font(.system(size: 18))
+                    .foregroundStyle(entry.isEnabled ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
             }
             .buttonStyle(.plain)
             .help(entry.isEnabled ? "Disable" : "Enable")
 
-            // Category icon
+            // Category badge
             Image(systemName: entry.category.icon)
-                .foregroundColor(.secondary)
-                .frame(width: 20)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                 .help(entry.category.displayName)
 
-            // Word and aliases
-            VStack(alignment: .leading, spacing: 2) {
+            // Word and metadata
+            VStack(alignment: .leading, spacing: 3) {
                 Text(entry.word)
+                    .font(.body)
                     .fontWeight(.medium)
+                    .foregroundStyle(entry.isEnabled ? .primary : .secondary)
 
-                if !entry.aliases.isEmpty {
-                    Text("Also: \(entry.aliases.joined(separator: ", "))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                if !entry.aliases.isEmpty || entry.pronunciation != nil {
+                    HStack(spacing: 8) {
+                        if !entry.aliases.isEmpty {
+                            Label {
+                                Text(entry.aliases.joined(separator: ", "))
+                                    .lineLimit(1)
+                            } icon: {
+                                Image(systemName: "arrow.triangle.branch")
+                            }
+                        }
 
-                if let pronunciation = entry.pronunciation, !pronunciation.isEmpty {
-                    Text("[\(pronunciation)]")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .italic()
+                        if let pronunciation = entry.pronunciation, !pronunciation.isEmpty {
+                            Label {
+                                Text(pronunciation)
+                            } icon: {
+                                Image(systemName: "waveform")
+                            }
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
 
             Spacer()
 
-            // Actions (visible on hover)
-            if isHovering {
-                HStack(spacing: 8) {
-                    Button(action: onEdit) {
-                        Image(systemName: "pencil")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Edit")
-
-                    Button(action: onDelete) {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundColor(.red)
-                    .help("Delete")
+            // Actions
+            HStack(spacing: 6) {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 14))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.borderless)
+                .help("Edit")
+
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red.opacity(0.8))
+                .help("Delete")
             }
+            .opacity(isHovering ? 1 : 0)
         }
         .padding(.vertical, 6)
+        .padding(.horizontal, 4)
         .contentShape(Rectangle())
-        .opacity(entry.isEnabled ? 1.0 : 0.6)
         .onHover { hovering in
-            isHovering = hovering
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
         }
     }
 }
