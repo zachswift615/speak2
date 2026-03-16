@@ -71,6 +71,29 @@ enum TranscriptionModel: String, CaseIterable {
             if let stored = Self.getStoredWhisperPath(for: self) {
                 return stored
             }
+            // Scan the actual WhisperKit download location for this variant
+            let storageBase: URL
+            if let path = UserDefaults.standard.string(forKey: "modelStorageLocation") {
+                storageBase = URL(fileURLWithPath: path)
+            } else {
+                storageBase = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                    .appendingPathComponent("Speak2")
+                    .appendingPathComponent("Models")
+            }
+            let whisperKitBase = storageBase
+                .appendingPathComponent("models")
+                .appendingPathComponent("argmaxinc")
+                .appendingPathComponent("whisperkit-coreml")
+            if let variant = whisperVariant,
+               FileManager.default.fileExists(atPath: whisperKitBase.path),
+               let folders = try? FileManager.default.contentsOfDirectory(atPath: whisperKitBase.path) {
+                if let match = folders.first(where: { $0.contains(variant) || variant.contains($0) }) {
+                    let foundPath = whisperKitBase.appendingPathComponent(match)
+                    Self.setStoredWhisperPath(foundPath, for: self)
+                    return foundPath
+                }
+            }
+            // Final fallback (legacy path)
             let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("Speak2")
                 .appendingPathComponent("Whisper")
@@ -340,6 +363,8 @@ class AppState: ObservableObject {
             return defaultModelStorageLocation
         }
         set {
+            let currentPath = UserDefaults.standard.string(forKey: "modelStorageLocation")
+            guard currentPath != newValue.path else { return }
             UserDefaults.standard.set(newValue.path, forKey: "modelStorageLocation")
             // Clear all stored model paths since they point to the old location
             for model in TranscriptionModel.allCases {
