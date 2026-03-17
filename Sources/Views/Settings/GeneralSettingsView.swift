@@ -169,6 +169,17 @@ struct GeneralSettingsView: View {
                     }
                 }
 
+                // About Section
+                SettingsSection(title: "About") {
+                    HStack {
+                        Text("Speak2")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"))")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Spacer()
             }
             .padding(24)

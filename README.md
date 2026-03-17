@@ -79,6 +79,15 @@ Tests can still use the Swift CLI since they don't exercise Metal:
 swift test
 ```
 
+## Releasing a New Version
+
+Before building a release, update the version number in `Sources/Info.plist`:
+
+1. Set `CFBundleShortVersionString` to the new version (e.g., `1.7.0`)
+2. Set `CFBundleVersion` to match (e.g., `1.7.0`)
+
+These values are displayed in **Settings > General > About** so users can verify which version they're running.
+
 ## First Launch Setup
 
 On first launch, a setup window will appear. You need to:
