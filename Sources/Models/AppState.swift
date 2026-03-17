@@ -62,6 +62,24 @@ enum TranscriptionModel: String, CaseIterable {
         }
     }
 
+    /// The base directory where models are stored (reads UserDefaults directly to avoid MainActor).
+    private static var modelStorageBase: URL {
+        if let path = UserDefaults.standard.string(forKey: "modelStorageLocation") {
+            return URL(fileURLWithPath: path)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Speak2")
+            .appendingPathComponent("Models")
+    }
+
+    /// The WhisperKit download directory within the model storage base.
+    private static var whisperKitBase: URL {
+        modelStorageBase
+            .appendingPathComponent("models")
+            .appendingPathComponent("argmaxinc")
+            .appendingPathComponent("whisperkit-coreml")
+    }
+
     /// Path where this model's files are stored.
     /// Whisper: uses persisted path from WhisperKit.download if set, else default under Application Support.
     /// Parakeet: fixed FluidAudio path.
@@ -71,33 +89,7 @@ enum TranscriptionModel: String, CaseIterable {
             if let stored = Self.getStoredWhisperPath(for: self) {
                 return stored
             }
-            // Scan the actual WhisperKit download location for this variant
-            let storageBase: URL
-            if let path = UserDefaults.standard.string(forKey: "modelStorageLocation") {
-                storageBase = URL(fileURLWithPath: path)
-            } else {
-                storageBase = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                    .appendingPathComponent("Speak2")
-                    .appendingPathComponent("Models")
-            }
-            let whisperKitBase = storageBase
-                .appendingPathComponent("models")
-                .appendingPathComponent("argmaxinc")
-                .appendingPathComponent("whisperkit-coreml")
-            if let variant = whisperVariant,
-               FileManager.default.fileExists(atPath: whisperKitBase.path),
-               let folders = try? FileManager.default.contentsOfDirectory(atPath: whisperKitBase.path) {
-                if let match = folders.first(where: { $0.contains(variant) || variant.contains($0) }) {
-                    let foundPath = whisperKitBase.appendingPathComponent(match)
-                    Self.setStoredWhisperPath(foundPath, for: self)
-                    return foundPath
-                }
-            }
-            // Final fallback (legacy path)
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("Speak2")
-                .appendingPathComponent("Whisper")
-            return base.appendingPathComponent(whisperVariant ?? "unknown")
+            return Self.whisperKitBase.appendingPathComponent(whisperVariant ?? "unknown")
         case .parakeetV3:
             return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("FluidAudio")
@@ -116,7 +108,7 @@ enum TranscriptionModel: String, CaseIterable {
     }
 
     static func getStoredWhisperPath(for model: TranscriptionModel) -> URL? {
-        guard model.whisperVariant != nil else { return nil }
+        guard let variant = model.whisperVariant else { return nil }
         if let path = UserDefaults.standard.string(forKey: "whisperModelPath_\(model.rawValue)") {
             return URL(fileURLWithPath: path)
         }
@@ -129,6 +121,15 @@ enum TranscriptionModel: String, CaseIterable {
                 setStoredWhisperPath(legacy, for: model)
                 return legacy
             }
+        }
+        // Scan the WhisperKit download directory for this variant on disk
+        let base = whisperKitBase
+        if FileManager.default.fileExists(atPath: base.path),
+           let folders = try? FileManager.default.contentsOfDirectory(atPath: base.path),
+           let match = folders.first(where: { $0 == variant }) {
+            let foundPath = base.appendingPathComponent(match)
+            setStoredWhisperPath(foundPath, for: model)
+            return foundPath
         }
         return nil
     }
