@@ -62,6 +62,24 @@ enum TranscriptionModel: String, CaseIterable {
         }
     }
 
+    /// The base directory where models are stored (reads UserDefaults directly to avoid MainActor).
+    private static var modelStorageBase: URL {
+        if let path = UserDefaults.standard.string(forKey: "modelStorageLocation") {
+            return URL(fileURLWithPath: path)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Speak2")
+            .appendingPathComponent("Models")
+    }
+
+    /// The WhisperKit download directory within the model storage base.
+    private static var whisperKitBase: URL {
+        modelStorageBase
+            .appendingPathComponent("models")
+            .appendingPathComponent("argmaxinc")
+            .appendingPathComponent("whisperkit-coreml")
+    }
+
     /// Path where this model's files are stored.
     /// Whisper: uses persisted path from WhisperKit.download if set, else default under Application Support.
     /// Parakeet: fixed FluidAudio path.
@@ -71,10 +89,7 @@ enum TranscriptionModel: String, CaseIterable {
             if let stored = Self.getStoredWhisperPath(for: self) {
                 return stored
             }
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("Speak2")
-                .appendingPathComponent("Whisper")
-            return base.appendingPathComponent(whisperVariant ?? "unknown")
+            return Self.whisperKitBase.appendingPathComponent(whisperVariant ?? "unknown")
         case .parakeetV3:
             return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("FluidAudio")
@@ -93,7 +108,7 @@ enum TranscriptionModel: String, CaseIterable {
     }
 
     static func getStoredWhisperPath(for model: TranscriptionModel) -> URL? {
-        guard model.whisperVariant != nil else { return nil }
+        guard let variant = model.whisperVariant else { return nil }
         if let path = UserDefaults.standard.string(forKey: "whisperModelPath_\(model.rawValue)") {
             return URL(fileURLWithPath: path)
         }
@@ -106,6 +121,15 @@ enum TranscriptionModel: String, CaseIterable {
                 setStoredWhisperPath(legacy, for: model)
                 return legacy
             }
+        }
+        // Scan the WhisperKit download directory for this variant on disk
+        let base = whisperKitBase
+        if FileManager.default.fileExists(atPath: base.path),
+           let folders = try? FileManager.default.contentsOfDirectory(atPath: base.path),
+           let match = folders.first(where: { $0 == variant }) {
+            let foundPath = base.appendingPathComponent(match)
+            setStoredWhisperPath(foundPath, for: model)
+            return foundPath
         }
         return nil
     }
@@ -310,6 +334,7 @@ enum RefinementMode: String, CaseIterable {
 @MainActor
 class AppState: ObservableObject {
     static let shared = AppState()
+    static let appVersion = "1.7.0"
 
     @Published var recordingState: RecordingState = .idle
     @Published var isModelLoaded: Bool = false
@@ -340,6 +365,8 @@ class AppState: ObservableObject {
             return defaultModelStorageLocation
         }
         set {
+            let currentPath = UserDefaults.standard.string(forKey: "modelStorageLocation")
+            guard currentPath != newValue.path else { return }
             UserDefaults.standard.set(newValue.path, forKey: "modelStorageLocation")
             // Clear all stored model paths since they point to the old location
             for model in TranscriptionModel.allCases {

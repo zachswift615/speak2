@@ -79,6 +79,13 @@ Tests can still use the Swift CLI since they don't exercise Metal:
 swift test
 ```
 
+## Releasing a New Version
+
+Before building a release, update the version number in two places:
+
+1. `Sources/Models/AppState.swift` — update `AppState.appVersion` (displayed in **Settings > General > About**)
+2. `Sources/Info.plist` — update `CFBundleShortVersionString` and `CFBundleVersion` (used in the .app bundle for DMG distribution)
+
 ## First Launch Setup
 
 On first launch, a setup window will appear. You need to:

@@ -169,6 +169,17 @@ struct GeneralSettingsView: View {
                     }
                 }
 
+                // About Section
+                SettingsSection(title: "About") {
+                    HStack {
+                        Text("Speak2")
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text("v\(AppState.appVersion)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Spacer()
             }
             .padding(24)

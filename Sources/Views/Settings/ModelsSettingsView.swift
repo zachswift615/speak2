@@ -523,6 +523,7 @@ struct ModelStorageSettingsRow: View {
     }
 
     private func confirmLocationChange(to newLocation: URL) {
+        guard newLocation.standardizedFileURL != storageLocation.standardizedFileURL else { return }
         if downloadedModelsAtCurrentLocation.isEmpty {
             changeLocationWithoutMoving(newLocation)
             return
