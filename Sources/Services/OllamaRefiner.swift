@@ -16,7 +16,7 @@ struct OllamaRefiner {
     /// Build the full prompt from user text and an optional custom prompt.
     static func buildPrompt(text: String, customPrompt: String? = nil) -> String {
         let promptBase = customPrompt.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? defaultPrompt
-        return "\(promptBase)\n\n\(text)"
+        return "\(promptBase)\n\n<transcription>\(text)</transcription>"
     }
 
     /// Build and validate the API URL from a base URL string.

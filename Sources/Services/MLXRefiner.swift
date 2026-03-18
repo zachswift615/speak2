@@ -62,7 +62,7 @@ actor MLXRefiner {
         let result = try await container.perform { context in
             let chat: [Chat.Message] = [
                 .system(systemPrompt),
-                .user(text),
+                .user("<transcription>\(text)</transcription>"),
             ]
             let userInput = UserInput(chat: chat)
             let lmInput = try await context.processor.prepare(input: userInput)
