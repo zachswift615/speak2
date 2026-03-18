@@ -50,11 +50,9 @@ actor MLXRefiner {
             throw MLXRefinerError.modelNotLoaded
         }
 
-        let promptBase = customPrompt.flatMap {
+        let systemPrompt = customPrompt.flatMap {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
         } ?? OllamaRefiner.defaultPrompt
-
-        let fullPrompt = "\(promptBase)\n\n\(text)"
 
         let parameters = GenerateParameters(
             maxTokens: 512,
@@ -62,7 +60,11 @@ actor MLXRefiner {
         )
 
         let result = try await container.perform { context in
-            let userInput = UserInput(prompt: fullPrompt)
+            let chat: [Chat.Message] = [
+                .system(systemPrompt),
+                .user(text),
+            ]
+            let userInput = UserInput(chat: chat)
             let lmInput = try await context.processor.prepare(input: userInput)
 
             return try MLXLMCommon.generate(
