@@ -334,6 +334,7 @@ enum RefinementMode: String, CaseIterable {
 @MainActor
 class AppState: ObservableObject {
     static let shared = AppState()
+    static let appVersion = "1.7.0"
 
     @Published var recordingState: RecordingState = .idle
     @Published var isModelLoaded: Bool = false

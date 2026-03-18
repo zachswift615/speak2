@@ -175,7 +175,7 @@ struct GeneralSettingsView: View {
                         Text("Speak2")
                             .fontWeight(.medium)
                         Spacer()
-                        Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"))")
+                        Text("v\(AppState.appVersion)")
                             .foregroundStyle(.secondary)
                     }
                 }

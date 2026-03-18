@@ -81,12 +81,10 @@ swift test
 
 ## Releasing a New Version
 
-Before building a release, update the version number in `Sources/Info.plist`:
+Before building a release, update the version number in two places:
 
-1. Set `CFBundleShortVersionString` to the new version (e.g., `1.7.0`)
-2. Set `CFBundleVersion` to match (e.g., `1.7.0`)
-
-These values are displayed in **Settings > General > About** so users can verify which version they're running.
+1. `Sources/Models/AppState.swift` — update `AppState.appVersion` (displayed in **Settings > General > About**)
+2. `Sources/Info.plist` — update `CFBundleShortVersionString` and `CFBundleVersion` (used in the .app bundle for DMG distribution)
 
 ## First Launch Setup
 
