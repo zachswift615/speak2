@@ -6,6 +6,29 @@ import MLX
 actor MLXRefiner {
     static let modelID = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
 
+    // MARK: - Few-shot examples
+
+    /// Default English few-shot pairs that teach the model the cleanup style.
+    /// These can be overridden per-user via the keys below. Non-English users
+    /// should replace these with equivalents in their language, otherwise the
+    /// model tends to translate its output to English.
+    static let defaultExampleUser1 = "um so like should I should I start with the model or the view first?"
+    static let defaultExampleAssistant1 = "Should I start with the model or the view first?"
+    static let defaultExampleUser2 = "hey uh good morning I was just wondering if you could you know take a look at the pull request when you get a chance"
+    static let defaultExampleAssistant2 = "Hey, good morning. I was just wondering if you could take a look at the pull request when you get a chance."
+
+    static let exampleUser1Key = "refineExampleUser1"
+    static let exampleAssistant1Key = "refineExampleAssistant1"
+    static let exampleUser2Key = "refineExampleUser2"
+    static let exampleAssistant2Key = "refineExampleAssistant2"
+
+    /// Read a stored example from UserDefaults, returning the default if blank/missing.
+    private static func storedExample(forKey key: String, default defaultValue: String) -> String {
+        let raw = UserDefaults.standard.string(forKey: key) ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultValue : raw
+    }
+
     /// HF Hub cache path used to check if the model is already downloaded.
     static var cacheURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -59,13 +82,18 @@ actor MLXRefiner {
             temperature: 0.1
         )
 
+        let exampleUser1 = Self.storedExample(forKey: Self.exampleUser1Key, default: Self.defaultExampleUser1)
+        let exampleAssistant1 = Self.storedExample(forKey: Self.exampleAssistant1Key, default: Self.defaultExampleAssistant1)
+        let exampleUser2 = Self.storedExample(forKey: Self.exampleUser2Key, default: Self.defaultExampleUser2)
+        let exampleAssistant2 = Self.storedExample(forKey: Self.exampleAssistant2Key, default: Self.defaultExampleAssistant2)
+
         let result = try await container.perform { context in
             let chat: [Chat.Message] = [
                 .system(systemPrompt),
-                .user("um so like should I should I start with the model or the view first?"),
-                .assistant("Should I start with the model or the view first?"),
-                .user("hey uh good morning I was just wondering if you could you know take a look at the pull request when you get a chance"),
-                .assistant("Hey, good morning. I was just wondering if you could take a look at the pull request when you get a chance."),
+                .user(exampleUser1),
+                .assistant(exampleAssistant1),
+                .user(exampleUser2),
+                .assistant(exampleAssistant2),
                 .user(text),
             ]
             let userInput = UserInput(chat: chat)

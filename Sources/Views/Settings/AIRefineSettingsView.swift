@@ -8,12 +8,33 @@ struct AIRefineSettingsView: View {
     @AppStorage("ollamaModel") private var ollamaModel: String = "gemma3:4b"
     @AppStorage("ollamaPrompt") private var ollamaPrompt: String = ""
 
+    @AppStorage(MLXRefiner.exampleUser1Key) private var exampleUser1: String = ""
+    @AppStorage(MLXRefiner.exampleAssistant1Key) private var exampleAssistant1: String = ""
+    @AppStorage(MLXRefiner.exampleUser2Key) private var exampleUser2: String = ""
+    @AppStorage(MLXRefiner.exampleAssistant2Key) private var exampleAssistant2: String = ""
+
     @State private var testStatus: TestStatus = .idle
     @State private var isModelCached: Bool = MLXRefiner.isModelCached
+    @State private var showAdvancedExamples: Bool = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+
+                // Language notice for non-English users
+                if refinementMode != .off {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "globe")
+                            .foregroundStyle(Color.accentColor)
+                            .font(.body)
+                        Text("**Non-English dictation:** the default Refinement Prompt and the few-shot examples under Advanced are in English, which biases the model toward English output. For reliable refinement in another language, translate both the Refinement Prompt and the example pairs into that language.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(12)
+                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                }
 
                 // Mode picker
                 SettingsSection(title: "AI Text Refinement") {
@@ -131,11 +152,101 @@ struct AIRefineSettingsView: View {
                     }
                 }
 
+                // Advanced: editable few-shot examples (built-in model only)
+                if refinementMode == .builtIn {
+                    SettingsSection(title: "Advanced") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            DisclosureGroup(isExpanded: $showAdvancedExamples) {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    Text("These example pairs teach the built-in model the cleanup style (raw transcription → cleaned version). They are sent on every refinement request, so they strongly influence the output language. If you dictate in a language other than English, replace them with equivalents in your language — otherwise the model tends to translate its output to English.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+
+                                    examplePair(
+                                        index: 1,
+                                        userText: $exampleUser1,
+                                        assistantText: $exampleAssistant1,
+                                        userPlaceholder: MLXRefiner.defaultExampleUser1,
+                                        assistantPlaceholder: MLXRefiner.defaultExampleAssistant1
+                                    )
+
+                                    Divider()
+
+                                    examplePair(
+                                        index: 2,
+                                        userText: $exampleUser2,
+                                        assistantText: $exampleAssistant2,
+                                        userPlaceholder: MLXRefiner.defaultExampleUser2,
+                                        assistantPlaceholder: MLXRefiner.defaultExampleAssistant2
+                                    )
+
+                                    if !allExamplesAtDefaults {
+                                        Button("Reset Examples to Defaults") {
+                                            exampleUser1 = ""
+                                            exampleAssistant1 = ""
+                                            exampleUser2 = ""
+                                            exampleAssistant2 = ""
+                                        }
+                                        .font(.caption)
+                                    }
+                                }
+                                .padding(.top, 8)
+                            } label: {
+                                Text("Few-shot examples")
+                                    .fontWeight(.medium)
+                            }
+                        }
+                    }
+                }
+
                 Spacer()
             }
             .padding(24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var allExamplesAtDefaults: Bool {
+        exampleUser1.isEmpty && exampleAssistant1.isEmpty &&
+        exampleUser2.isEmpty && exampleAssistant2.isEmpty
+    }
+
+    @ViewBuilder
+    private func examplePair(
+        index: Int,
+        userText: Binding<String>,
+        assistantText: Binding<String>,
+        userPlaceholder: String,
+        assistantPlaceholder: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Example \(index)")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Raw (user)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                placeholderTextField(text: userText, placeholder: userPlaceholder)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Cleaned (assistant)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                placeholderTextField(text: assistantText, placeholder: assistantPlaceholder)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func placeholderTextField(text: Binding<String>, placeholder: String) -> some View {
+        TextField("", text: text, prompt: Text(placeholder).foregroundStyle(.secondary.opacity(0.6)), axis: .vertical)
+            .textFieldStyle(.roundedBorder)
+            .lineLimit(2...4)
     }
 
     @ViewBuilder
