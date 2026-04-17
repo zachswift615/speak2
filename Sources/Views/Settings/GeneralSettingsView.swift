@@ -11,6 +11,8 @@ struct GeneralSettingsView: View {
     @State private var customCombos: [CustomHotkeyCombo] = HotkeyOption.savedCustomCombos
     @State private var activeComboId: UUID? = HotkeyOption.savedActiveCustomComboId
 
+    @AppStorage("clipboardRestoreDelayMs") private var clipboardRestoreDelayMs: Int = TextInjector.defaultFallbackDelayMs
+
     private var presets: [HotkeyOption] {
         HotkeyOption.allCases.filter { $0 != .custom }
     }
@@ -164,6 +166,37 @@ struct GeneralSettingsView: View {
                         Toggle("Show live transcription while recording", isOn: $appState.liveTranscriptionEnabled)
 
                         Text("Displays a floating overlay with real-time transcription text while you hold the hotkey.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // Paste Behavior Section
+                SettingsSection(title: "Paste Behavior") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Clipboard restore delay")
+                                .fontWeight(.medium)
+                            Spacer()
+                            TextField(
+                                "",
+                                value: $clipboardRestoreDelayMs,
+                                format: .number
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 70)
+                            .multilineTextAlignment(.trailing)
+                            .onChange(of: clipboardRestoreDelayMs) { _, newValue in
+                                let clamped = min(max(newValue, TextInjector.minFallbackDelayMs), TextInjector.maxFallbackDelayMs)
+                                if clamped != newValue {
+                                    clipboardRestoreDelayMs = clamped
+                                }
+                            }
+                            Text("ms")
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text("How long Speak2 waits before restoring your original clipboard after pasting. Increase this (e.g. 500–1000ms) if you paste into remote/SSH terminals and sometimes see the original clipboard contents appear instead of your transcription. Range: \(TextInjector.minFallbackDelayMs)–\(TextInjector.maxFallbackDelayMs)ms.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

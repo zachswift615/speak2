@@ -46,7 +46,19 @@ final class TextInjector {
     /// Fallback delay for apps that don't support accessibility notifications.
     /// Most paste operations complete within 50ms. We use 100ms as a conservative
     /// fallback to minimize the window where users could accidentally paste again.
-    private let fallbackDelay: Duration = .milliseconds(100)
+    /// Users can override via the "clipboardRestoreDelayMs" UserDefaults key — useful
+    /// for slow SSH/remote terminals where the default may restore the original
+    /// clipboard before the target app finishes reading the injected text.
+    static let defaultFallbackDelayMs: Int = 100
+    static let minFallbackDelayMs: Int = 50
+    static let maxFallbackDelayMs: Int = 2000
+
+    private var fallbackDelay: Duration {
+        let raw = UserDefaults.standard.object(forKey: "clipboardRestoreDelayMs") as? Int
+        let ms = raw ?? Self.defaultFallbackDelayMs
+        let clamped = min(max(ms, Self.minFallbackDelayMs), Self.maxFallbackDelayMs)
+        return .milliseconds(clamped)
+    }
 
     // MARK: - State
 
