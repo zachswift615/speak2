@@ -10,6 +10,21 @@ class TranscriptionHistoryState: ObservableObject {
     @Published var errorMessage: String? = nil
 
     private let storage = TranscriptionHistoryStorage()
+    private var expiryTimer: Timer?
+
+    /// UserDefaults keys for history-related settings.
+    static let historyEnabledKey = "historyEnabled"
+    static let historyRetentionMinutesKey = "historyRetentionMinutes"
+
+    /// Whether new transcriptions should be saved to history. Defaults to true.
+    static var historyEnabled: Bool {
+        UserDefaults.standard.object(forKey: historyEnabledKey) as? Bool ?? true
+    }
+
+    /// Minutes after which entries are auto-deleted. 0 (default) means never expire.
+    static var historyRetentionMinutes: Int {
+        UserDefaults.standard.integer(forKey: historyRetentionMinutesKey)
+    }
 
     /// All unique model names present in history, for the filter dropdown
     var availableModels: [String] {
@@ -46,6 +61,31 @@ class TranscriptionHistoryState: ObservableObject {
 
     func load() {
         entries = storage.load()
+        sweepExpired()
+        startExpiryTimerIfNeeded()
+    }
+
+    /// Remove entries older than the configured retention window.
+    /// No-op if retention is 0 (never expire).
+    func sweepExpired() {
+        let retentionMinutes = Self.historyRetentionMinutes
+        guard retentionMinutes > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-Double(retentionMinutes) * 60)
+        let originalCount = entries.count
+        entries.removeAll { $0.timestamp < cutoff }
+        if entries.count != originalCount {
+            save()
+        }
+    }
+
+    /// Run a sweep every minute so retention takes effect while the app is open.
+    private func startExpiryTimerIfNeeded() {
+        guard expiryTimer == nil else { return }
+        expiryTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.sweepExpired()
+            }
+        }
     }
 
     func save() {
@@ -58,6 +98,9 @@ class TranscriptionHistoryState: ObservableObject {
     }
 
     func add(_ entry: TranscriptionHistoryEntry) {
+        // Respect the user's history-enabled preference
+        guard Self.historyEnabled else { return }
+
         // Deduplicate: skip if identical to last entry
         if let lastEntry = entries.first,
            lastEntry.text == entry.text,

@@ -12,6 +12,8 @@ struct GeneralSettingsView: View {
     @State private var activeComboId: UUID? = HotkeyOption.savedActiveCustomComboId
 
     @AppStorage("clipboardRestoreDelayMs") private var clipboardRestoreDelayMs: Int = TextInjector.defaultFallbackDelayMs
+    @AppStorage(TranscriptionHistoryState.historyEnabledKey) private var historyEnabled: Bool = true
+    @AppStorage(TranscriptionHistoryState.historyRetentionMinutesKey) private var historyRetentionMinutes: Int = 0
 
     private var presets: [HotkeyOption] {
         HotkeyOption.allCases.filter { $0 != .custom }
@@ -168,6 +170,44 @@ struct GeneralSettingsView: View {
                         Text("Displays a floating overlay with real-time transcription text while you hold the hotkey.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                // History Section
+                SettingsSection(title: "Transcription History") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Save transcriptions to history", isOn: $historyEnabled)
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Auto-delete after")
+                                    .fontWeight(.medium)
+                                Spacer()
+                                TextField(
+                                    "",
+                                    value: $historyRetentionMinutes,
+                                    format: .number
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                                .multilineTextAlignment(.trailing)
+                                .disabled(!historyEnabled)
+                                .onChange(of: historyRetentionMinutes) { _, newValue in
+                                    if newValue < 0 {
+                                        historyRetentionMinutes = 0
+                                    }
+                                    appState.historyState.sweepExpired()
+                                }
+                                Text("minutes")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Text("Set to 0 to keep history indefinitely (up to 500 entries). Otherwise, entries older than this are automatically deleted.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

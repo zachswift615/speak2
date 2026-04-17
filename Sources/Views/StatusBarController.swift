@@ -136,6 +136,15 @@ class StatusBarController {
         quickAddItem.target = self
         menu.addItem(quickAddItem)
 
+        // History
+        let historyItem = NSMenuItem(
+            title: "History...",
+            action: #selector(openHistory),
+            keyEquivalent: ""
+        )
+        historyItem.target = self
+        menu.addItem(historyItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Settings menu item
