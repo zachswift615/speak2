@@ -355,13 +355,13 @@ final class TextInjector {
         // Key down with Command modifier
         if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) {
             keyDown.flags = .maskCommand
-            keyDown.post(tap: .cgAnnotatedSessionEventTap)
+            keyDown.post(tap: .cghidEventTap)
         }
 
         // Key up with Command modifier
         if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
             keyUp.flags = .maskCommand
-            keyUp.post(tap: .cgAnnotatedSessionEventTap)
+            keyUp.post(tap: .cghidEventTap)
         }
     }
 }
