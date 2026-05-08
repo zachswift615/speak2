@@ -25,6 +25,20 @@ class HotkeyManager {
 
     private var isSuspended = false
 
+    // Hold-mode key-release delay
+    private var keyUpDelayTimer: Timer?
+
+    static let defaultHoldReleaseDelayMs: Int = 200
+    static let minHoldReleaseDelayMs: Int = 0
+    static let maxHoldReleaseDelayMs: Int = 2000
+
+    private var holdReleaseDelay: TimeInterval {
+        let raw = UserDefaults.standard.object(forKey: "holdReleaseDelayMs") as? Int
+        let ms = raw ?? Self.defaultHoldReleaseDelayMs
+        let clamped = min(max(ms, Self.minHoldReleaseDelayMs), Self.maxHoldReleaseDelayMs)
+        return TimeInterval(clamped) / 1000.0
+    }
+
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
     var onToggle: ((Bool) -> Void)?
@@ -181,14 +195,29 @@ class HotkeyManager {
 
         // Hold mode: standard state transitions
         if hotkeyPressed && !isHotkeyActive {
+            // Re-pressed during delay — cancel pending key-up and keep recording
+            keyUpDelayTimer?.invalidate()
+            keyUpDelayTimer = nil
+
             isHotkeyActive = true
             DispatchQueue.main.async { [weak self] in
                 self?.onKeyDown?()
             }
         } else if !hotkeyPressed && isHotkeyActive {
-            isHotkeyActive = false
-            DispatchQueue.main.async { [weak self] in
-                self?.onKeyUp?()
+            let delay = holdReleaseDelay
+            if delay > 0 {
+                keyUpDelayTimer?.invalidate()
+                keyUpDelayTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                    self?.isHotkeyActive = false
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onKeyUp?()
+                    }
+                }
+            } else {
+                isHotkeyActive = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.onKeyUp?()
+                }
             }
         }
 
@@ -254,6 +283,10 @@ class HotkeyManager {
         runLoopSource = nil
         isHotkeyActive = false
         isSuspended = false
+
+        // Reset key-up delay
+        keyUpDelayTimer?.invalidate()
+        keyUpDelayTimer = nil
 
         // Reset double-press state
         doublePressResetTimer?.invalidate()
