@@ -11,6 +11,7 @@ struct GeneralSettingsView: View {
     @State private var customCombos: [CustomHotkeyCombo] = HotkeyOption.savedCustomCombos
     @State private var activeComboId: UUID? = HotkeyOption.savedActiveCustomComboId
 
+    @AppStorage("holdReleaseDelayMs") private var holdReleaseDelayMs: Int = HotkeyManager.defaultHoldReleaseDelayMs
     @AppStorage("clipboardRestoreDelayMs") private var clipboardRestoreDelayMs: Int = TextInjector.defaultFallbackDelayMs
     @AppStorage(TranscriptionHistoryState.historyEnabledKey) private var historyEnabled: Bool = true
     @AppStorage(TranscriptionHistoryState.historyRetentionMinutesKey) private var historyRetentionMinutes: Int = 0
@@ -151,6 +152,36 @@ struct GeneralSettingsView: View {
                         Text("When enabled, press the hotkey twice quickly to start recording, and twice again to stop. When disabled, hold the key to record.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        if !isToggleMode {
+                            Divider()
+
+                            HStack {
+                                Text("Release delay")
+                                    .fontWeight(.medium)
+                                Spacer()
+                                TextField(
+                                    "",
+                                    value: $holdReleaseDelayMs,
+                                    format: .number
+                                )
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 70)
+                                .multilineTextAlignment(.trailing)
+                                .onChange(of: holdReleaseDelayMs) { _, newValue in
+                                    let clamped = min(max(newValue, HotkeyManager.minHoldReleaseDelayMs), HotkeyManager.maxHoldReleaseDelayMs)
+                                    if clamped != newValue {
+                                        holdReleaseDelayMs = clamped
+                                    }
+                                }
+                                Text("ms")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Text("How long recording continues after you release the hotkey. Increase this if your transcriptions are missing the last word. Range: \(HotkeyManager.minHoldReleaseDelayMs)–\(HotkeyManager.maxHoldReleaseDelayMs)ms.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
