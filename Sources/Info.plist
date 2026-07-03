@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.zachswift.speak2</string>
     <key>CFBundleVersion</key>
-    <string>1.8.1</string>
+    <string>1.9.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.8.1</string>
+    <string>1.9.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
