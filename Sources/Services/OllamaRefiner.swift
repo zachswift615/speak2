@@ -13,10 +13,22 @@ struct OllamaRefiner {
         Message:
         """
 
-    /// Build the full prompt from user text and an optional custom prompt.
-    static func buildPrompt(text: String, customPrompt: String? = nil) -> String {
+    /// An instruction appended to the cleanup prompt so the model keeps the output in the
+    /// user's chosen language instead of translating it (small local models tend to drift
+    /// to English). Returns an empty string when no specific language is selected.
+    static func languageDirective(for languageName: String?) -> String {
+        guard let languageName = languageName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !languageName.isEmpty else {
+            return ""
+        }
+        return "\n\nThe message is written in \(languageName). Always write your response in \(languageName). Never translate the message into another language."
+    }
+
+    /// Build the full prompt from user text, an optional custom prompt, and an optional
+    /// language directive.
+    static func buildPrompt(text: String, customPrompt: String? = nil, languageName: String? = nil) -> String {
         let promptBase = customPrompt.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? defaultPrompt
-        return "\(promptBase)\n\n<transcription>\(text)</transcription>"
+        return "\(promptBase)\(languageDirective(for: languageName))\n\n<transcription>\(text)</transcription>"
     }
 
     /// Build and validate the API URL from a base URL string.
@@ -41,9 +53,9 @@ struct OllamaRefiner {
         return trimmed.isEmpty ? originalText : trimmed
     }
 
-    static func refine(text: String, baseURL: String, model: String, customPrompt: String? = nil) async throws -> String {
+    static func refine(text: String, baseURL: String, model: String, customPrompt: String? = nil, languageName: String? = nil) async throws -> String {
         let apiURL = try buildAPIURL(from: baseURL)
-        let prompt = buildPrompt(text: text, customPrompt: customPrompt)
+        let prompt = buildPrompt(text: text, customPrompt: customPrompt, languageName: languageName)
 
         let body: [String: Any] = [
             "model": model,

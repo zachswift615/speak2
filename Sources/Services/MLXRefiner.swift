@@ -68,14 +68,15 @@ actor MLXRefiner {
         MLX.GPU.clearCache()
     }
 
-    func refine(text: String, customPrompt: String? = nil) async throws -> String {
+    func refine(text: String, customPrompt: String? = nil, languageName: String? = nil) async throws -> String {
         guard let container = modelContainer else {
             throw MLXRefinerError.modelNotLoaded
         }
 
-        let systemPrompt = customPrompt.flatMap {
+        let basePrompt = customPrompt.flatMap {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
         } ?? OllamaRefiner.defaultPrompt
+        let systemPrompt = basePrompt + OllamaRefiner.languageDirective(for: languageName)
 
         let parameters = GenerateParameters(
             maxTokens: 512,

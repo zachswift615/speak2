@@ -47,6 +47,11 @@ struct ModelsSettingsView: View {
                     .cornerRadius(8)
                 }
 
+                // Transcription Language Section
+                SettingsSection(title: "Transcription Language") {
+                    TranscriptionLanguageSettingsRow(selectedModel: appState.selectedModel)
+                }
+
                 // Storage Location Section
                 SettingsSection(title: "Storage Location") {
                     ModelStorageSettingsRow(appState: appState)
@@ -367,6 +372,48 @@ struct ModelSettingsRow: View {
             } else if !isDownloaded && !isDownloading {
                 onDownload()
             }
+        }
+    }
+}
+
+// MARK: - Transcription Language Row
+
+struct TranscriptionLanguageSettingsRow: View {
+    let selectedModel: TranscriptionModel
+    @AppStorage(TranscriptionLanguagePreference.key) private var languageCode: String = ""
+
+    private var isApplicable: Bool { selectedModel.supportsLanguageSelection }
+
+    private var caption: String {
+        if isApplicable {
+            return "Force transcription into a specific language instead of auto-detecting it. Helpful if your accent causes words to be transcribed in the wrong language. When set, AI cleanup keeps the result in this language too."
+        } else {
+            return "Language selection applies to multilingual Whisper models (large-v3 or large-v3 turbo). \(selectedModel.displayName) transcribes automatically and ignores this setting."
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Spoken language")
+                    .fontWeight(.medium)
+                Spacer()
+                Picker("", selection: $languageCode) {
+                    Text("Auto-detect").tag("")
+                    Divider()
+                    ForEach(TranscriptionLanguagePreference.supported) { language in
+                        Text(language.pickerLabel).tag(language.code)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 240)
+                .disabled(!isApplicable)
+            }
+
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

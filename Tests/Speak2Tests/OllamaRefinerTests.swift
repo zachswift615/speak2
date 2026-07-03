@@ -12,7 +12,7 @@ final class OllamaRefinerTests: XCTestCase {
     func testDefaultPromptContainsCleanupInstructions() {
         let prompt = OllamaRefiner.defaultPrompt
         XCTAssertTrue(prompt.contains("filler words"), "Default prompt should mention filler words")
-        XCTAssertTrue(prompt.contains("plain text"), "Default prompt should request plain text output")
+        XCTAssertTrue(prompt.contains("Return only"), "Default prompt should request only the cleaned message")
     }
 
     // MARK: - Prompt Building
@@ -20,7 +20,7 @@ final class OllamaRefinerTests: XCTestCase {
     func testBuildPromptUsesDefaultWhenNilCustomPrompt() {
         let result = OllamaRefiner.buildPrompt(text: "hello world", customPrompt: nil)
         XCTAssertTrue(result.hasPrefix(OllamaRefiner.defaultPrompt))
-        XCTAssertTrue(result.hasSuffix("hello world"))
+        XCTAssertTrue(result.contains("<transcription>hello world</transcription>"))
     }
 
     func testBuildPromptUsesDefaultWhenEmptyCustomPrompt() {
@@ -42,13 +42,27 @@ final class OllamaRefinerTests: XCTestCase {
 
     func testBuildPromptSeparatesPromptAndTextWithDoubleNewline() {
         let result = OllamaRefiner.buildPrompt(text: "test input", customPrompt: "My prompt:")
-        XCTAssertEqual(result, "My prompt:\n\ntest input")
+        XCTAssertEqual(result, "My prompt:\n\n<transcription>test input</transcription>")
     }
 
     func testBuildPromptPreservesTextExactly() {
         let text = "um so I wanted to uh say hello"
         let result = OllamaRefiner.buildPrompt(text: text)
-        XCTAssertTrue(result.hasSuffix(text))
+        XCTAssertTrue(result.contains("<transcription>\(text)</transcription>"))
+    }
+
+    // MARK: - Language Directive
+
+    func testBuildPromptAppendsLanguageDirectiveWhenLanguageProvided() {
+        let result = OllamaRefiner.buildPrompt(text: "hallo welt", customPrompt: nil, languageName: "German")
+        XCTAssertTrue(result.contains("German"), "Prompt should name the selected language")
+        XCTAssertTrue(result.contains("<transcription>hallo welt</transcription>"))
+    }
+
+    func testBuildPromptOmitsLanguageDirectiveWhenNil() {
+        let withNil = OllamaRefiner.buildPrompt(text: "x", customPrompt: nil, languageName: nil)
+        let withoutArg = OllamaRefiner.buildPrompt(text: "x", customPrompt: nil)
+        XCTAssertEqual(withNil, withoutArg, "No language directive should be added when language is nil")
     }
 
     // MARK: - URL Building

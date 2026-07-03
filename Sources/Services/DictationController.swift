@@ -300,6 +300,14 @@ class DictationController {
         let refinementMode = RefinementMode.saved
         let customPrompt = UserDefaults.standard.string(forKey: "ollamaPrompt")
 
+        // When the user has forced a transcription language (multilingual Whisper only),
+        // tell the refiner to keep its output in that language rather than translating it.
+        let languageName: String? = {
+            guard appState.selectedModel.supportsLanguageSelection,
+                  let code = TranscriptionLanguagePreference.savedCode else { return nil }
+            return TranscriptionLanguagePreference.name(forCode: code)
+        }()
+
         switch refinementMode {
         case .builtIn:
             await MainActor.run { appState.recordingState = .refining }
@@ -311,7 +319,7 @@ class DictationController {
                 if await !refiner.isModelLoaded {
                     try await refiner.loadModel { _ in }
                 }
-                result = try await refiner.refine(text: result, customPrompt: customPrompt)
+                result = try await refiner.refine(text: result, customPrompt: customPrompt, languageName: languageName)
             } catch {
                 print("Built-in refinement skipped: \(error.localizedDescription)")
             }
@@ -326,7 +334,8 @@ class DictationController {
                         text: result,
                         baseURL: ollamaURL,
                         model: ollamaModel,
-                        customPrompt: customPrompt
+                        customPrompt: customPrompt,
+                        languageName: languageName
                     )
                 } catch {
                     print("Ollama refinement skipped: \(error.localizedDescription)")

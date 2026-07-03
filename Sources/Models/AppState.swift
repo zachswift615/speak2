@@ -50,6 +50,16 @@ enum TranscriptionModel: String, CaseIterable {
         }
     }
 
+    /// True for multilingual Whisper models where a spoken language can be forced.
+    /// Other models (English-only Whisper, Parakeet) transcribe automatically and
+    /// cannot be constrained to a language via their engine's API.
+    var supportsLanguageSelection: Bool {
+        switch self {
+        case .whisperLargeV3, .whisperLargeV3Turbo: return true
+        default: return false
+        }
+    }
+
     /// WhisperKit variant string for download/load (nil for non-Whisper models).
     var whisperVariant: String? {
         switch self {

@@ -97,6 +97,20 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
         whisperKit != nil
     }
 
+    /// Apply the user's language preference to decode options (multilingual models only).
+    /// A specific selected language is forced; otherwise fall back to auto-detection.
+    /// Reads UserDefaults fresh each call so changes take effect on the next dictation
+    /// without reloading the model.
+    private func applyLanguagePreference(to options: inout DecodingOptions) {
+        guard isMultilingual else { return }
+        if let code = TranscriptionLanguagePreference.savedCode {
+            options.language = code
+            options.detectLanguage = false
+        } else {
+            options.detectLanguage = true
+        }
+    }
+
     /// Load a Whisper model by variant string (e.g. "base.en", "small.en", "large-v3").
     /// Returns the model folder URL so the caller can persist it for isDownloaded/delete.
     func loadModel(variant: String, progressHandler: @escaping (Double) -> Void) async throws -> URL {
@@ -169,11 +183,9 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
 
         var results: [TranscriptionResult]
 
-        // Build decode options — auto-detect language for multilingual models
+        // Build decode options — force or auto-detect language for multilingual models
         var decodeOptions = DecodingOptions()
-        if isMultilingual {
-            decodeOptions.detectLanguage = true
-        }
+        applyLanguagePreference(to: &decodeOptions)
 
         // Try with vocabulary hint first if provided
         if let hint = dictionaryHint, !hint.isEmpty {
@@ -187,7 +199,7 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
             // Fallback: if promptTokens caused empty results, retry without
             if results.isEmpty || results.allSatisfy({ $0.text.trimmingCharacters(in: .whitespaces).isEmpty }) {
                 var fallbackOptions = DecodingOptions()
-                if isMultilingual { fallbackOptions.detectLanguage = true }
+                applyLanguagePreference(to: &fallbackOptions)
                 results = try await whisperKit.transcribe(audioPath: audioURL.path, decodeOptions: fallbackOptions)
             }
         } else {
@@ -217,12 +229,10 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
             throw TranscriptionEngineError.modelNotLoaded
         }
 
-        // Build decode options — auto-detect language for multilingual models
+        // Build decode options — force or auto-detect language for multilingual models
         var decodeOptions = DecodingOptions()
         decodeOptions.skipSpecialTokens = true
-        if isMultilingual {
-            decodeOptions.detectLanguage = true
-        }
+        applyLanguagePreference(to: &decodeOptions)
         if let hint = dictionaryHint, !hint.isEmpty,
            let tokenizer = whisperKit.tokenizer {
             decodeOptions.promptTokens = tokenizer.encode(text: hint)
@@ -321,12 +331,12 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
         let capturedMaxSamples = maxStreamingSamples
 
         // Build lightweight decode options for streaming passes.
-        // promptTokens cause empty results with audioArray, so only set detectLanguage.
+        // promptTokens cause empty results with audioArray, so only set language options.
         var streamingDecodeOptions: DecodingOptions?
         if isMultilingual {
             var opts = DecodingOptions()
             opts.skipSpecialTokens = true
-            opts.detectLanguage = true
+            applyLanguagePreference(to: &opts)
             streamingDecodeOptions = opts
         }
 
