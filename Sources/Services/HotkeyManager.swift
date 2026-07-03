@@ -27,8 +27,12 @@ class HotkeyManager {
 
     // Hold-mode key-release delay
     private var keyUpDelayTimer: Timer?
+    /// True while a delayed key-up is pending (key released, waiting out the delay
+    /// before ending the recording). Kept distinct from isHotkeyActive so that a
+    /// re-press during the window can cancel the pending key-up and keep recording.
+    private var isReleasePending = false
 
-    static let defaultHoldReleaseDelayMs: Int = 200
+    static let defaultHoldReleaseDelayMs: Int = 0
     static let minHoldReleaseDelayMs: Int = 0
     static let maxHoldReleaseDelayMs: Int = 2000
 
@@ -194,24 +198,32 @@ class HotkeyManager {
         }
 
         // Hold mode: standard state transitions
-        if hotkeyPressed && !isHotkeyActive {
-            // Re-pressed during delay — cancel pending key-up and keep recording
-            keyUpDelayTimer?.invalidate()
-            keyUpDelayTimer = nil
-
-            isHotkeyActive = true
-            DispatchQueue.main.async { [weak self] in
-                self?.onKeyDown?()
+        if hotkeyPressed {
+            if isReleasePending {
+                // Re-pressed during the release delay — cancel the pending key-up
+                // and keep the current recording session going (no new onKeyDown).
+                keyUpDelayTimer?.invalidate()
+                keyUpDelayTimer = nil
+                isReleasePending = false
+            } else if !isHotkeyActive {
+                isHotkeyActive = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.onKeyDown?()
+                }
             }
-        } else if !hotkeyPressed && isHotkeyActive {
+        } else if isHotkeyActive && !isReleasePending {
             let delay = holdReleaseDelay
             if delay > 0 {
+                // Defer the key-up so trailing audio isn't clipped. isHotkeyActive
+                // stays true so the session is still considered live during the wait.
+                isReleasePending = true
                 keyUpDelayTimer?.invalidate()
                 keyUpDelayTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                    self?.isHotkeyActive = false
-                    DispatchQueue.main.async { [weak self] in
-                        self?.onKeyUp?()
-                    }
+                    guard let self = self else { return }
+                    self.keyUpDelayTimer = nil
+                    self.isReleasePending = false
+                    self.isHotkeyActive = false
+                    self.onKeyUp?()
                 }
             } else {
                 isHotkeyActive = false
@@ -287,6 +299,7 @@ class HotkeyManager {
         // Reset key-up delay
         keyUpDelayTimer?.invalidate()
         keyUpDelayTimer = nil
+        isReleasePending = false
 
         // Reset double-press state
         doublePressResetTimer?.invalidate()
