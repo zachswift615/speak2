@@ -10,6 +10,27 @@ private func whisperLog(_ message: @autoclosure () -> String) {
     #endif
 }
 
+/// Races `operation` against a timeout so a stalled network call (e.g. WhisperKit fetching its
+/// tokenizer from Hugging Face) fails with a clear error instead of hanging indefinitely.
+private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw TranscriptionEngineError.downloadFailed(
+                "Timed out after \(Int(seconds))s waiting for the model to load — check your network connection and try again."
+            )
+        }
+        defer { group.cancelAll() }
+        guard let result = try await group.next() else {
+            throw TranscriptionEngineError.downloadFailed("Model loading was cancelled.")
+        }
+        return result
+    }
+}
+
 /// Thread-safe container for the latest streaming text, written from the streaming loop
 /// and read from the WhisperTranscriber actor when stopping.
 final class StreamingTextSnapshot: @unchecked Sendable {
@@ -112,8 +133,18 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
     }
 
     /// Load a Whisper model by variant string (e.g. "base.en", "small.en", "large-v3").
-    /// Returns the model folder URL so the caller can persist it for isDownloaded/delete.
-    func loadModel(variant: String, progressHandler: @escaping (Double) -> Void) async throws -> URL {
+    /// - Parameter existingModelFolder: A previously-downloaded model folder to load from directly,
+    ///   skipping the Hugging Face Hub lookup entirely. Pass this whenever the model is already
+    ///   known to be on disk (e.g. re-selecting a downloaded model) so loading never depends on
+    ///   network availability — WhisperKit.download() always performs a live Hub API round-trip
+    ///   to list/verify remote files, even when nothing needs to be downloaded, and will hang
+    ///   indefinitely (no timeout) if that request stalls.
+    /// - Returns: The model folder URL so the caller can persist it for isDownloaded/delete.
+    func loadModel(
+        variant: String,
+        existingModelFolder: URL? = nil,
+        progressHandler: @escaping (Double) -> Void
+    ) async throws -> URL {
         guard !isLoading && whisperKit == nil else {
             throw TranscriptionEngineError.modelNotLoaded
         }
@@ -121,18 +152,31 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
 
         defer { isLoading = false }
 
-        // Download model first with progress tracking
-        let modelFolder = try await WhisperKit.download(
-            variant: variant,
-            downloadBase: await AppState.modelStorageLocation,
-            progressCallback: { progress in
-                Task { @MainActor in
-                    progressHandler(progress.fractionCompleted)
+        let modelFolder: URL
+        if let existingModelFolder, FileManager.default.fileExists(atPath: existingModelFolder.path) {
+            modelFolder = existingModelFolder
+            progressHandler(1.0)
+        } else {
+            // Download model first with progress tracking
+            modelFolder = try await WhisperKit.download(
+                variant: variant,
+                downloadBase: await AppState.modelStorageLocation,
+                progressCallback: { progress in
+                    Task { @MainActor in
+                        progressHandler(progress.fractionCompleted)
+                    }
                 }
-            }
-        )
+            )
+        }
 
-        // Initialize WhisperKit with the downloaded model (no re-download needed)
+        // Initialize WhisperKit with the downloaded model (no re-download needed).
+        // The first time a given variant loads, this involves a genuinely slow step: macOS
+        // compiles the CoreML model for the Neural Engine on-device, which can take several
+        // minutes for larger models (confirmed via sampling: CPU-bound work in the `aned`
+        // daemon, not a hang). WhisperKit also fetches its tokenizer from a separate Hub repo
+        // here since it isn't bundled with the CoreML model, which needs network the first time.
+        // Guard with a generous timeout as a safety net for a genuinely stalled request, without
+        // cutting off a slow-but-legitimate first-time compile.
         let config = WhisperKitConfig(
             modelFolder: modelFolder.path,
             verbose: false,
@@ -142,7 +186,9 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
             download: false
         )
 
-        whisperKit = try await WhisperKit(config)
+        whisperKit = try await withTimeout(seconds: 600) {
+            try await WhisperKit(config)
+        }
         isMultilingual = !variant.contains(".en")
         return modelFolder
     }

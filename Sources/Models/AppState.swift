@@ -132,14 +132,20 @@ enum TranscriptionModel: String, CaseIterable {
                 return legacy
             }
         }
-        // Scan the WhisperKit download directory for this variant on disk
+        // Scan the WhisperKit download directory for this variant on disk.
+        // Downloaded folders are always named "openai_whisper-<variant>" (WhisperKit's HF repo
+        // convention), but `variant` itself is only sometimes prefixed that way (e.g. "base.en"
+        // vs. "openai_whisper-large-v3_turbo_954MB") — so match either exact form, not a substring,
+        // to avoid e.g. "large-v3" spuriously matching the "large-v3_turbo_954MB" folder.
         let base = whisperKitBase
         if FileManager.default.fileExists(atPath: base.path),
-           let folders = try? FileManager.default.contentsOfDirectory(atPath: base.path),
-           let match = folders.first(where: { $0 == variant }) {
-            let foundPath = base.appendingPathComponent(match)
-            setStoredWhisperPath(foundPath, for: model)
-            return foundPath
+           let folders = try? FileManager.default.contentsOfDirectory(atPath: base.path) {
+            let prefixedVariant = variant.hasPrefix("openai_whisper-") ? variant : "openai_whisper-\(variant)"
+            if let match = folders.first(where: { $0 == variant || $0 == prefixedVariant }) {
+                let foundPath = base.appendingPathComponent(match)
+                setStoredWhisperPath(foundPath, for: model)
+                return foundPath
+            }
         }
         return nil
     }
