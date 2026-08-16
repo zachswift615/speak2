@@ -10,6 +10,7 @@ Local voice dictation for macOS. Hold the fn key (configurable) to speak, releas
 
 - **Push-to-talk or toggle dictation** - Hold a hotkey to record, or double-press to toggle on/off
 - **Live transcription overlay** - See your words appear in real time as you speak
+- **Any microphone** - Built-in mic, USB interfaces (multi-channel too), AirPods and other Bluetooth headsets; pick a device or follow the system default, and survive device switches mid-dictation
 - **Multiple speech engines** - WhisperKit (5 model sizes) and Parakeet v3
 - **AI text refinement** - Built-in LLM or Ollama cleans up filler words and false starts
 - **Personal dictionary** - Phonetic matching corrects names, jargon, and technical terms
@@ -79,6 +80,14 @@ Tests can still use the Swift CLI since they don't exercise Metal:
 swift test
 ```
 
+Microphone capture has an opt-in hardware regression suite that starts real capture and switches the
+default input device mid-recording (the same thing AirPods do when they activate their microphone).
+It needs microphone access for the test process and at least two input devices:
+
+```bash
+SPEAK2_AUDIO_HARDWARE_TESTS=1 swift test --filter AudioCaptureHardwareTests
+```
+
 ## Releasing a New Version
 
 Before building a release, update the version number in two places:
@@ -137,8 +146,8 @@ Once all three items show checkmarks, the setup window will indicate completion 
 
 ## Usage
 
-1. **Hold the fn key** - Recording starts (menu bar icon turns red, audio start sound plays)
-2. **Speak** - Say what you want to type (live transcription overlay shows your words in real time)
+1. **Hold the fn key** - The microphone starts (menu bar icon turns orange and a "Starting microphone…" panel appears), then recording begins (icon turns red)
+2. **Speak** - Once the icon is red, say what you want to type (live transcription overlay shows your words in real time)
 3. **Release fn key** - Final transcription happens (icon shows spinner), text is refined if enabled, then pasted
 
 The transcribed text is automatically pasted into whatever application text field has focus.
@@ -164,7 +173,17 @@ When enabled (**Settings > General**), a floating overlay appears at the bottom 
 - The panel auto-sizes and stays centered on screen
 - Works across all spaces and full-screen apps
 
-Live transcription uses streaming recognition - the same audio is also transcribed as a complete pass when you stop recording for maximum accuracy.
+Live transcription uses streaming recognition - the same audio is also transcribed as a complete pass when you stop recording for maximum accuracy. Whether or not the overlay is enabled, the full recording is buffered in memory and transcribed in one pass at the end, so there is no limit on recording length.
+
+### Microphone & Bluetooth Headsets
+
+All audio capture goes through a single `AudioCaptureService` that converts any input device (built-in mic, USB interfaces, AirPods and other Bluetooth headsets) to 16 kHz mono. If the input device or its format changes mid-recording — AirPods do this when they switch to their microphone profile — capture is rebuilt automatically and recording continues. Expect a short gap (about a second) right after the switch while macOS re-routes audio.
+
+**Choosing a microphone:** Settings → General → Microphone (also in the menu bar dropdown). "System Default" follows macOS's current input; pick a specific device if macOS keeps choosing the wrong one (when a headset disconnects, macOS can fall back to a silent virtual device such as a conferencing or loopback driver). If the chosen device isn't connected, the system default is used.
+
+The menu bar icon turns orange (and an on-screen "Starting microphone…" panel appears) while the microphone is starting, and red once audio is actually flowing — with Bluetooth headsets that can take a couple of seconds, so wait for red before speaking. To make back-to-back dictations start instantly, set **Keep microphone ready after dictation** in Settings → General → Microphone; the trade-off is that the system's mic-in-use indicator stays on for that window. If a recording contained only digital silence, Speak2 shows an error naming the input device instead of pasting nothing.
+
+**Debugging audio problems:** `defaults write com.zachswift.speak2 debugSaveRecordings -bool YES` keeps the last five raw recordings in `~/Library/Application Support/Speak2/debug-recordings/`.
 
 ### Menu Bar
 
@@ -172,6 +191,7 @@ Speak2 runs as a menu bar app (no dock icon). Look for the microphone icon:
 
 - **White/Black (depending on macOS theme)** - Idle, ready to record
 - **Yellow spinning arrows** - Loading model
+- **Orange mic outline** - Starting the microphone (audio not flowing yet — wait for red)
 - **Red mic** - Recording in progress
 - **Cyan spinner** - Transcribing
 - **Purple sparkles** - AI refinement in progress
@@ -180,6 +200,9 @@ The menu shows a status line at the top indicating the current state (e.g., "Rea
 
 #### Switching Models
 Click the menu bar icon and select **Model** to switch between downloaded models. Models not yet downloaded show a ↓ indicator - clicking them opens the setup window to download.
+
+#### Choosing a Microphone
+Click the menu bar icon and select **Microphone** to pick an input device (or **System Default**, which names the device macOS is currently using). The same picker, plus **Keep microphone ready after dictation**, is in **Settings > General > Microphone**.
 
 #### Choosing Hotkey
 
@@ -202,7 +225,7 @@ Sometimes external keyboards don't send the function key reliably. In that case,
 
 Click **Settings...** (⌘,) from the menu bar to open the unified settings window with five tabs:
 
-- **General** - Hotkey configuration, recording mode (hold/toggle), live transcription toggle, permissions, launch at login
+- **General** - Hotkey configuration, recording mode (hold/toggle), microphone selection and keep-ready window, live transcription toggle, permissions, launch at login
 - **Models** - Download, manage, and delete speech recognition models; configure storage location
 - **Dictionary** - Manage your personal dictionary (add, edit, import/export words)
 - **History** - Browse, search, and export your transcription history

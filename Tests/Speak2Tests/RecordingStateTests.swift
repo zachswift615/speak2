@@ -18,8 +18,16 @@ final class RecordingStateTests: XCTestCase {
 
     func testAllRecordingStates() {
         // Verify all expected states exist
-        let states: [RecordingState] = [.idle, .loadingModel, .recording, .transcribing, .refining]
-        XCTAssertEqual(states.count, 5, "RecordingState should have 5 cases")
+        let states: [RecordingState] = [.idle, .loadingModel, .startingMicrophone, .recording, .transcribing, .refining]
+        XCTAssertEqual(states.count, 6, "RecordingState should have 6 cases")
+    }
+
+    func testIsCapturingCoversStartingAndRecording() {
+        XCTAssertTrue(RecordingState.startingMicrophone.isCapturing)
+        XCTAssertTrue(RecordingState.recording.isCapturing)
+        for state in [RecordingState.idle, .loadingModel, .transcribing, .refining] {
+            XCTAssertFalse(state.isCapturing, "\(state)")
+        }
     }
 }
 

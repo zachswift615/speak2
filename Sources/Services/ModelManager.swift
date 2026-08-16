@@ -128,12 +128,21 @@ class ModelManager: ObservableObject {
         }
     }
 
-    /// Start streaming transcription using the currently loaded engine
-    func startStreaming(dictionaryHint: String? = nil) async throws {
+    /// Start streaming transcription using the currently loaded engine.
+    /// - Parameter liveUpdates: whether to publish intermediate text on `streamingTextUpdates`.
+    func startStreaming(
+        dictionaryHint: String? = nil,
+        liveUpdates: Bool,
+        onMicrophoneLive: (@Sendable () -> Void)? = nil
+    ) async throws {
         guard let engine = currentStreamingEngine else {
             throw TranscriptionEngineError.modelNotLoaded
         }
-        try await engine.startStreaming(dictionaryHint: dictionaryHint)
+        try await engine.startStreaming(
+            dictionaryHint: dictionaryHint,
+            liveUpdates: liveUpdates,
+            onMicrophoneLive: onMicrophoneLive
+        )
     }
 
     /// Stop streaming transcription and return the final accumulated text

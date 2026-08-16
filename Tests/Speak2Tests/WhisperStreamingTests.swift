@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import Speak2
 
@@ -149,5 +150,38 @@ final class WhisperStreamingTests: XCTestCase {
 
     func testOnlyPunctuation() {
         XCTAssertEqual(normalizeForComparison("..."), "")
+    }
+}
+
+// MARK: - AudioSampleBuffer.suffix (used by live-transcription passes on long recordings)
+
+final class AudioSampleBufferSuffixTests: XCTestCase {
+    func testSuffixReturnsTail() {
+        let buffer = AudioSampleBuffer()
+        buffer.append((0..<10).map(Float.init))
+        XCTAssertEqual(buffer.suffix(3), [7, 8, 9])
+    }
+
+    func testSuffixLargerThanCountReturnsAll() {
+        let buffer = AudioSampleBuffer()
+        buffer.append([1, 2, 3])
+        XCTAssertEqual(buffer.suffix(10), [1, 2, 3])
+    }
+
+    func testSuffixOnEmptyBuffer() {
+        XCTAssertEqual(AudioSampleBuffer().suffix(5), [])
+    }
+
+    func testWriteSamplesToTempWAVRoundTrips() throws {
+        let samples: [Float] = (0..<16000).map { Float(sin(Double($0) / 50)) }
+        let url = try writeSamplesToTempWAV(samples, filenamePrefix: "test_stream")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let file = try AVAudioFile(forReading: url)
+        XCTAssertEqual(file.fileFormat.sampleRate, 16000)
+        XCTAssertEqual(file.fileFormat.channelCount, 1)
+        XCTAssertEqual(Int(file.length), samples.count)
+        let pcm = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!
+        try file.read(into: pcm)
+        XCTAssertEqual(pcm.floatChannelData![0][100], samples[100], accuracy: 1e-6)
     }
 }

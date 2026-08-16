@@ -92,9 +92,9 @@ struct LiveTranscriptionOverlayView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            // Pulsing recording indicator
+            // Pulsing recording indicator (orange until the microphone is actually live)
             Circle()
-                .fill(Color.red)
+                .fill(appState.recordingState == .startingMicrophone ? Color.orange : Color.red)
                 .frame(width: 10, height: 10)
                 .modifier(PulseModifier())
                 .padding(.top, 3)
@@ -110,7 +110,7 @@ struct LiveTranscriptionOverlayView: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("Listening...")
+                Text(appState.recordingState == .startingMicrophone ? "Starting microphone..." : "Listening...")
                     .font(.system(size: 14))
                     .italic()
                     .foregroundStyle(.secondary)

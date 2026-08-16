@@ -1,74 +1,11 @@
-import Accelerate
 import AVFoundation
 import Foundation
-import os
 import WhisperKit
 
 private func whisperLog(_ message: @autoclosure () -> String) {
     #if DEBUG
     print("[WhisperStream] \(message())")
     #endif
-}
-
-/// Thread-safe container for the latest streaming text, written from the streaming loop
-/// and read from the WhisperTranscriber actor when stopping.
-final class StreamingTextSnapshot: @unchecked Sendable {
-    private var lock = os_unfair_lock()
-    private var _confirmed: String = ""
-    private var _unconfirmed: String = ""
-
-    func update(confirmed: String, unconfirmed: String) {
-        os_unfair_lock_lock(&lock)
-        _confirmed = confirmed
-        _unconfirmed = unconfirmed
-        os_unfair_lock_unlock(&lock)
-    }
-
-    func read() -> (confirmed: String, unconfirmed: String) {
-        os_unfair_lock_lock(&lock)
-        let result = (_confirmed, _unconfirmed)
-        os_unfair_lock_unlock(&lock)
-        return result
-    }
-
-    func reset() {
-        os_unfair_lock_lock(&lock)
-        _confirmed = ""
-        _unconfirmed = ""
-        os_unfair_lock_unlock(&lock)
-    }
-}
-
-/// Thread-safe `[Float]` accumulator for audio samples using `os_unfair_lock`.
-final class AudioSampleBuffer: @unchecked Sendable {
-    private var lock = os_unfair_lock()
-    private var _samples: [Float] = []
-
-    func append(_ samples: [Float]) {
-        os_unfair_lock_lock(&lock)
-        _samples.append(contentsOf: samples)
-        os_unfair_lock_unlock(&lock)
-    }
-
-    func snapshot() -> [Float] {
-        os_unfair_lock_lock(&lock)
-        let copy = _samples
-        os_unfair_lock_unlock(&lock)
-        return copy
-    }
-
-    var count: Int {
-        os_unfair_lock_lock(&lock)
-        let c = _samples.count
-        os_unfair_lock_unlock(&lock)
-        return c
-    }
-
-    func reset() {
-        os_unfair_lock_lock(&lock)
-        _samples.removeAll()
-        os_unfair_lock_unlock(&lock)
-    }
 }
 
 actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
@@ -85,9 +22,10 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
     private var isMultilingual = false
 
     // MARK: - Streaming properties
-    private var audioEngine: AVAudioEngine?
+    private let capture: AudioCaptureService
+    private var captureToken: AudioCaptureToken?
     private var audioBuffer: AudioSampleBuffer?
-    private var activeDecodeOptions: DecodingOptions?
+    private var activeDictionaryHint: String?
     private var streamingTask: Task<Void, Error>?
     private var _streamingTextUpdates: AsyncStream<StreamingTextUpdate>?
     private var streamContinuation: AsyncStream<StreamingTextUpdate>.Continuation?
@@ -95,6 +33,10 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
 
     var isModelLoaded: Bool {
         whisperKit != nil
+    }
+
+    init(capture: AudioCaptureService = .shared) {
+        self.capture = capture
     }
 
     /// Apply the user's language preference to decode options (multilingual models only).
@@ -155,23 +97,18 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
     }
 
     func unloadModel() async {
-        // Clean up audio engine if running
-        if let engine = audioEngine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
+        // Stop microphone capture if this engine still has a streaming session open
+        if let token = captureToken {
+            await capture.stop(token)
+            captureToken = nil
         }
-        audioEngine = nil
-        audioBuffer = nil
-        activeDecodeOptions = nil
 
         streamingTask?.cancel()
         let pendingTask = streamingTask
         streamingTask = nil
         // Await to avoid racing a concurrent transcription against model teardown
         _ = try? await pendingTask?.value
-        streamContinuation?.finish()
-        streamContinuation = nil
-        _streamingTextUpdates = nil
+        resetStreamingState()
 
         whisperKit = nil
     }
@@ -185,6 +122,7 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
 
         // Build decode options — force or auto-detect language for multilingual models
         var decodeOptions = DecodingOptions()
+        decodeOptions.skipSpecialTokens = true
         applyLanguagePreference(to: &decodeOptions)
 
         // Try with vocabulary hint first if provided
@@ -199,6 +137,7 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
             // Fallback: if promptTokens caused empty results, retry without
             if results.isEmpty || results.allSatisfy({ $0.text.trimmingCharacters(in: .whitespaces).isEmpty }) {
                 var fallbackOptions = DecodingOptions()
+                fallbackOptions.skipSpecialTokens = true
                 applyLanguagePreference(to: &fallbackOptions)
                 results = try await whisperKit.transcribe(audioPath: audioURL.path, decodeOptions: fallbackOptions)
             }
@@ -224,20 +163,16 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
         return AsyncStream { $0.finish() }
     }
 
-    func startStreaming(dictionaryHint: String?) async throws {
+    func startStreaming(
+        dictionaryHint: String?,
+        liveUpdates: Bool,
+        onMicrophoneLive: (@Sendable () -> Void)?
+    ) async throws {
         guard let whisperKit = whisperKit else {
             throw TranscriptionEngineError.modelNotLoaded
         }
 
-        // Build decode options — force or auto-detect language for multilingual models
-        var decodeOptions = DecodingOptions()
-        decodeOptions.skipSpecialTokens = true
-        applyLanguagePreference(to: &decodeOptions)
-        if let hint = dictionaryHint, !hint.isEmpty,
-           let tokenizer = whisperKit.tokenizer {
-            decodeOptions.promptTokens = tokenizer.encode(text: hint)
-        }
-        activeDecodeOptions = decodeOptions
+        activeDictionaryHint = dictionaryHint
         latestStreamingText.reset()
 
         // Create AsyncStream + continuation
@@ -245,84 +180,39 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
         _streamingTextUpdates = stream
         streamContinuation = continuation
 
-        // Set up AudioSampleBuffer
+        // Capture microphone audio (16 kHz mono) into the sample buffer.
+        // AudioCaptureService owns the AVAudioEngine and handles device/format changes.
         let buffer = AudioSampleBuffer()
         audioBuffer = buffer
 
-        // Set up AVAudioEngine
-        let engine = AVAudioEngine()
-        audioEngine = engine
-
-        let inputNode = engine.inputNode
-        let hardwareFormat = inputNode.outputFormat(forBus: 0)
-
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16000,
-            channels: 1,
-            interleaved: false
-        ) else {
-            throw TranscriptionEngineError.transcriptionFailed("Failed to create 16kHz mono format")
-        }
-
-        guard let converter = AVAudioConverter(from: hardwareFormat, to: targetFormat) else {
-            throw TranscriptionEngineError.transcriptionFailed("Failed to create audio converter")
-        }
-
-        whisperLog("Hardware format: \(hardwareFormat)")
-
-        // Sample counter for periodic RMS/peak logging (~1 second intervals)
-        var samplesSinceLastLog: Int = 0
-
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { tapBuffer, _ in
-            let frameCount = AVAudioFrameCount(
-                targetFormat.sampleRate * Double(tapBuffer.frameLength) / tapBuffer.format.sampleRate
-            )
-            guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: frameCount) else { return }
-
-            var error: NSError?
-            let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-                outStatus.pointee = .haveData
-                return tapBuffer
-            }
-
-            guard status != .error, error == nil else { return }
-
-            // Extract Float array from channel data
-            guard let channelData = outputBuffer.floatChannelData else { return }
-            let length = Int(outputBuffer.frameLength)
-            let samples = Array(UnsafeBufferPointer(start: channelData[0], count: length))
-
-            buffer.append(samples)
-
-            // Log RMS/peak every ~1 second
-            samplesSinceLastLog += length
-            if samplesSinceLastLog >= 16000 {
-                samples.withUnsafeBufferPointer { ptr in
-                    var rms: Float = 0
-                    var peak: Float = 0
-                    vDSP_rmsqv(ptr.baseAddress!, 1, &rms, vDSP_Length(ptr.count))
-                    vDSP_maxmgv(ptr.baseAddress!, 1, &peak, vDSP_Length(ptr.count))
-                    whisperLog("Audio level — RMS: \(rms), Peak: \(peak), Total samples: \(buffer.count)")
-                }
-                samplesSinceLastLog = 0
-            }
-        }
-
-        engine.prepare()
-
+        let token: AudioCaptureToken
         do {
-            try engine.start()
+            token = try await capture.start(
+                onSamples: { samples in buffer.append(samples) },
+                onMicrophoneLive: onMicrophoneLive
+            )
+        } catch AudioCaptureError.superseded {
+            // stopStreaming() ran before the microphone finished starting (a very quick key tap).
+            // It already cleaned up; there is nothing to report.
+            whisperLog("startStreaming: superseded before capture started")
+            return
         } catch {
-            whisperLog("Error starting audio engine: \(error)")
-            continuation.finish()
-            streamContinuation = nil
-            _streamingTextUpdates = nil
-            audioEngine = nil
-            audioBuffer = nil
-            activeDecodeOptions = nil
-            throw TranscriptionEngineError.transcriptionFailed("Audio engine failed to start: \(error.localizedDescription)")
+            whisperLog("Error starting audio capture: \(error)")
+            resetStreamingState()
+            throw error
         }
+
+        // stopStreaming() may have run while we were awaiting capture start; the capture we just
+        // started belongs to nobody, so release it (the token makes this safe against newer sessions).
+        guard audioBuffer === buffer else {
+            whisperLog("startStreaming: stopped before capture started — tearing down")
+            await capture.stop(token)
+            return
+        }
+        captureToken = token
+
+        // Without live updates there is nothing to show; the final transcription happens in stopStreaming.
+        guard liveUpdates else { return }
 
         // Launch streaming transcription loop
         let snapshot = latestStreamingText
@@ -346,16 +236,10 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
             while !Task.isCancelled {
                 try await Task.sleep(nanoseconds: 500_000_000) // 500ms
 
-                let allSamples = buffer.snapshot()
-
-                guard allSamples.count >= capturedMinSamples else { continue }
-
-                // Cap at ~5 seconds to keep each pass fast.
-                // For longer recordings, transcribe only the recent window;
-                // the final file-based transcription captures everything.
-                let samples = allSamples.count > capturedMaxSamples
-                    ? Array(allSamples.suffix(capturedMaxSamples))
-                    : allSamples
+                // Transcribe only the most recent ~5 s window to keep each pass fast;
+                // the final pass in stopStreaming covers the whole recording.
+                let samples = buffer.suffix(capturedMaxSamples)
+                guard samples.count >= capturedMinSamples else { continue }
 
                 do {
                     let startTime = CFAbsoluteTimeGetCurrent()
@@ -400,45 +284,16 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
 
     // MARK: - Stop Streaming
 
-    /// Write Float32 samples to a temporary 16kHz mono WAV file for reliable transcription.
-    private func writeSamplesToTempFile(_ samples: [Float]) throws -> URL {
-        let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent("whisper_stream_\(UUID().uuidString).wav")
-
-        guard let format = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16000,
-            channels: 1,
-            interleaved: false
-        ) else {
-            throw TranscriptionEngineError.transcriptionFailed("Failed to create audio format")
-        }
-
-        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
-            throw TranscriptionEngineError.transcriptionFailed("Failed to create PCM buffer")
-        }
-
-        pcmBuffer.frameLength = AVAudioFrameCount(samples.count)
-        memcpy(pcmBuffer.floatChannelData![0], samples, samples.count * MemoryLayout<Float>.size)
-
-        let audioFile = try AVAudioFile(
-            forWriting: fileURL,
-            settings: format.settings,
-            commonFormat: .pcmFormatFloat32,
-            interleaved: false
-        )
-        try audioFile.write(from: pcmBuffer)
-
-        return fileURL
-    }
-
+    /// Stop capture, transcribe the whole recording, and return the text.
+    /// Throws if capture failed and nothing usable was recorded, or if the final transcription fails
+    /// and there is no live-transcription text to fall back on.
     func stopStreaming() async throws -> String {
-        // 1. Stop audio engine
-        if let engine = audioEngine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
+        // 1. Stop microphone capture
+        var captureReport: AudioCaptureSessionReport?
+        if let token = captureToken {
+            captureReport = await capture.stop(token)
         }
-        audioEngine = nil
+        captureToken = nil
 
         // 2. Cancel streaming loop task and AWAIT completion to avoid racing
         // a concurrent whisperKit.transcribe() call against the final one below
@@ -447,67 +302,63 @@ actor WhisperTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
         streamingTask = nil
         try? await task?.value
 
-        // 3. Final transcription — write buffer to temp file and use the proven
-        // transcribe(audioPath:) API (transcribe(audioArray:) is unreliable)
-        var finalText = ""
+        let buffer = audioBuffer
+        let dictionaryHint = activeDictionaryHint
+        resetStreamingState()
 
-        if let buffer = audioBuffer, let whisperKit = whisperKit {
-            let samples = buffer.snapshot()
-            whisperLog("stopStreaming: buffer has \(samples.count) samples (\(String(format: "%.1f", Double(samples.count) / 16000.0))s)")
-            if samples.count >= minTranscriptionSamples {
-                do {
-                    let tempFile = try writeSamplesToTempFile(samples)
-                    defer { try? FileManager.default.removeItem(at: tempFile) }
+        // 3. Final transcription over the entire recording via the file-based API
+        // (transcribe(audioArray:) is unreliable with prompt tokens).
+        let samples = buffer?.snapshot() ?? []
+        whisperLog("stopStreaming: buffer has \(samples.count) samples (\(String(format: "%.1f", Double(samples.count) / 16000.0))s)")
 
-                    // Try with decode options (dictionary hint) first
-                    var results = try await whisperKit.transcribe(
-                        audioPath: tempFile.path,
-                        decodeOptions: activeDecodeOptions ?? DecodingOptions()
-                    )
-
-                    finalText = results
-                        .compactMap { $0.text }
-                        .joined(separator: " ")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                    // Fallback: if promptTokens caused empty results, retry without
-                    if finalText.isEmpty {
-                        whisperLog("stopStreaming: retrying without decodeOptions")
-                        results = try await whisperKit.transcribe(audioPath: tempFile.path)
-                        finalText = results
-                            .compactMap { $0.text }
-                            .joined(separator: " ")
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-
-                    whisperLog("stopStreaming: final transcription = '\(finalText)'")
-                } catch {
-                    whisperLog("Final transcription error: \(error)")
-                }
+        guard samples.count >= minTranscriptionSamples else {
+            if let failure = captureReport?.failure {
+                throw TranscriptionEngineError.noAudioCaptured(failure.localizedDescription)
             }
-        } else {
-            whisperLog("stopStreaming: buffer or whisperKit is nil")
+            return ""   // a tap too short to contain speech
         }
 
-        // 4. Fallback: if final transcription failed or empty, use latest snapshot
-        if finalText.isEmpty {
-            let (confirmed, unconfirmed) = latestStreamingText.read()
-            whisperLog("stopStreaming: final empty, falling back to snapshot: confirmed='\(confirmed)' unconfirmed='\(unconfirmed)'")
-            finalText = [confirmed, unconfirmed]
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        // A device that delivered nothing but digital zeros (e.g. a virtual input, or a headset whose
+        // mic never came up) is a configuration problem the user needs to hear about, not silence to
+        // transcribe.
+        if let report = captureReport, !report.heardAudio {
+            throw TranscriptionEngineError.noAudioCaptured(
+                "'\(report.inputDeviceName)' delivered only silence. Choose a different microphone in Settings → General → Microphone."
+            )
         }
-        whisperLog("stopStreaming: returning '\(finalText)'")
 
-        // 5. Clean up all state
+        DebugRecordingStore.saveIfEnabled(samples, engine: "whisper")
+
+        do {
+            let tempFile = try writeSamplesToTempWAV(samples, filenamePrefix: "whisper_stream")
+            defer { try? FileManager.default.removeItem(at: tempFile) }
+            let finalText = try await transcribe(audioURL: tempFile, dictionaryHint: dictionaryHint)
+            whisperLog("stopStreaming: final transcription = '\(finalText)'")
+            if !finalText.isEmpty { return finalText }
+        } catch {
+            whisperLog("Final transcription error: \(error)")
+            let fallback = fallbackTextFromLivePasses()
+            if !fallback.isEmpty { return fallback }
+            throw error
+        }
+
+        // 4. Empty final result: fall back to whatever the live passes produced
+        return fallbackTextFromLivePasses()
+    }
+
+    private func fallbackTextFromLivePasses() -> String {
+        let (confirmed, unconfirmed) = latestStreamingText.read()
+        return [confirmed, unconfirmed]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func resetStreamingState() {
         streamContinuation?.finish()
         streamContinuation = nil
         _streamingTextUpdates = nil
-        audioBuffer?.reset()
         audioBuffer = nil
-        activeDecodeOptions = nil
-
-        return finalText
+        activeDictionaryHint = nil
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Protocol defining a speech-to-text transcription engine.
 /// Implementations must be actors to ensure thread-safe model access.
@@ -27,9 +28,50 @@ struct StreamingTextUpdate: Sendable {
 }
 
 protocol StreamingTranscriptionEngine: Actor {
-    func startStreaming(dictionaryHint: String?) async throws
+    /// Start capturing microphone audio.
+    /// - Parameters:
+    ///   - dictionaryHint: Optional comma-separated vocabulary to bias transcription toward.
+    ///   - liveUpdates: When true, run periodic transcription passes and publish them on
+    ///     `streamingTextUpdates`. When false, only capture audio; the full transcription is
+    ///     produced by `stopStreaming()`.
+    ///   - onMicrophoneLive: Called once when the microphone is actually delivering audio
+    ///     (may be on any thread).
+    func startStreaming(
+        dictionaryHint: String?,
+        liveUpdates: Bool,
+        onMicrophoneLive: (@Sendable () -> Void)?
+    ) async throws
     func stopStreaming() async throws -> String  // returns final accumulated text
     var streamingTextUpdates: AsyncStream<StreamingTextUpdate> { get }
+}
+
+/// Thread-safe container for the latest streaming text, written from the streaming loop
+/// and read from the engine actor when stopping.
+final class StreamingTextSnapshot: @unchecked Sendable {
+    private var lock = os_unfair_lock()
+    private var _confirmed: String = ""
+    private var _unconfirmed: String = ""
+
+    func update(confirmed: String, unconfirmed: String) {
+        os_unfair_lock_lock(&lock)
+        _confirmed = confirmed
+        _unconfirmed = unconfirmed
+        os_unfair_lock_unlock(&lock)
+    }
+
+    func read() -> (confirmed: String, unconfirmed: String) {
+        os_unfair_lock_lock(&lock)
+        let result = (_confirmed, _unconfirmed)
+        os_unfair_lock_unlock(&lock)
+        return result
+    }
+
+    func reset() {
+        os_unfair_lock_lock(&lock)
+        _confirmed = ""
+        _unconfirmed = ""
+        os_unfair_lock_unlock(&lock)
+    }
 }
 
 // MARK: - Word-level diff helper (shared by Whisper and Parakeet streaming)
@@ -77,11 +119,15 @@ enum TranscriptionEngineError: Error, LocalizedError {
     case modelNotLoaded
     case transcriptionFailed(String)
     case downloadFailed(String)
+    /// The recording produced no usable audio because microphone capture failed.
+    case noAudioCaptured(String)
 
     var errorDescription: String? {
         switch self {
         case .modelNotLoaded:
             return "Model is not loaded"
+        case .noAudioCaptured(let reason):
+            return "No audio was captured: \(reason)"
         case .transcriptionFailed(let reason):
             return "Transcription failed: \(reason)"
         case .downloadFailed(let reason):

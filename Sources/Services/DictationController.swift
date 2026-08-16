@@ -3,7 +3,6 @@ import Foundation
 @MainActor
 class DictationController {
     private let hotkeyManager = HotkeyManager()
-    private let audioRecorder = AudioRecorder()
     private let textInjector = TextInjector()
     private let dictionaryProcessor = DictionaryProcessor()
     private let appState = AppState.shared
@@ -11,8 +10,6 @@ class DictationController {
     private var mlxRefiner: MLXRefiner?
 
     let modelManager = ModelManager()
-
-    private var currentRecordingURL: URL?
 
     // Streaming transcription state
     private var streamConsumptionTask: Task<Void, Never>?
@@ -97,55 +94,71 @@ class DictationController {
     private func startRecording() {
         guard appState.recordingState == .idle else { return }
 
-        if appState.liveTranscriptionEnabled && modelManager.supportsStreaming {
-            // Streaming path: engine handles mic capture internally
-            currentRecordingURL = nil
-            appState.recordingState = .recording
+        // All recording goes through the engine's streaming path: AudioCaptureService captures the
+        // microphone (16 kHz mono, tolerant of device/format changes) into an unbounded buffer, and
+        // the final transcription is run over the entire recording when the key is released — so
+        // recordings of any length work regardless of the live-transcription setting. That setting
+        // only controls whether intermediate results are computed and shown in the overlay.
+        guard modelManager.supportsStreaming else {
+            appState.lastError = "No transcription model is loaded."
+            hotkeyManager.resetToggleState()
+            return
+        }
 
-            let dictionaryHint = appState.dictionaryState.promptText(for: appState.dictionaryState.selectedLanguage)
+        let showLiveOverlay = appState.liveTranscriptionEnabled
+        // Red icon / "Recording" only once audio is really flowing (see onMicrophoneLive below).
+        appState.recordingState = .startingMicrophone
 
-            // Show overlay
-            appState.liveTranscriptionConfirmedText = ""
-            appState.liveTranscriptionUnconfirmedText = ""
-            if liveOverlayController == nil {
-                liveOverlayController = LiveTranscriptionPanelController()
-            }
-            liveOverlayController?.show()
+        let dictionaryHint = appState.dictionaryState.promptText(for: appState.dictionaryState.selectedLanguage)
 
-            // Start streaming and consume updates
-            streamConsumptionTask = Task { [weak self] in
-                guard let self else { return }
-                do {
-                    try await self.modelManager.startStreaming(
-                        dictionaryHint: dictionaryHint.isEmpty ? nil : dictionaryHint
-                    )
+        // The overlay is always shown while the microphone is starting so there's an unmissable cue
+        // that the mic isn't live yet. Once audio flows it either becomes the live-transcription view
+        // or is dismissed (when live transcription is off).
+        appState.liveTranscriptionConfirmedText = ""
+        appState.liveTranscriptionUnconfirmedText = ""
+        if liveOverlayController == nil {
+            liveOverlayController = LiveTranscriptionPanelController()
+        }
+        liveOverlayController?.show()
 
-                    guard let updates = await self.modelManager.streamingTextUpdates else {
-                        return
+        // Start capture (and live updates if enabled), then consume updates
+        streamConsumptionTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.modelManager.startStreaming(
+                    dictionaryHint: dictionaryHint.isEmpty ? nil : dictionaryHint,
+                    liveUpdates: showLiveOverlay,
+                    onMicrophoneLive: { [weak self] in
+                        Task { @MainActor [weak self] in
+                            guard let self, self.appState.recordingState == .startingMicrophone else { return }
+                            self.appState.recordingState = .recording
+                            if !showLiveOverlay {
+                                self.dismissOverlay()
+                            }
+                        }
                     }
+                )
 
-                    for await update in updates {
-                        guard !Task.isCancelled else { break }
-                        self.appState.liveTranscriptionConfirmedText = update.confirmedText
-                        self.appState.liveTranscriptionUnconfirmedText = update.unconfirmedText
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.appState.lastError = "Streaming failed: \(error.localizedDescription)"
+                guard showLiveOverlay,
+                      let updates = await self.modelManager.streamingTextUpdates else {
+                    return
+                }
+
+                for await update in updates {
+                    guard !Task.isCancelled else { break }
+                    self.appState.liveTranscriptionConfirmedText = update.confirmedText
+                    self.appState.liveTranscriptionUnconfirmedText = update.unconfirmedText
+                }
+            } catch {
+                await MainActor.run {
+                    self.appState.lastError = "Recording failed: \(error.localizedDescription)"
+                    // If the key was already released, stopRecordingAndTranscribe owns the state reset.
+                    if self.appState.recordingState.isCapturing {
                         self.appState.recordingState = .idle
                         self.hotkeyManager.resetToggleState()
                         self.dismissOverlay()
                     }
                 }
-            }
-        } else {
-            // File-based path: audioRecorder captures to file
-            do {
-                currentRecordingURL = try audioRecorder.startRecording()
-                appState.recordingState = .recording
-            } catch {
-                appState.lastError = "Failed to start recording: \(error.localizedDescription)"
-                hotkeyManager.resetToggleState()
             }
         }
     }
@@ -164,131 +177,64 @@ class DictationController {
     }
 
     private func stopRecordingAndTranscribe() {
-        guard appState.recordingState == .recording else { return }
+        guard appState.recordingState.isCapturing else { return }
 
         stopLiveTranscription()
+        appState.recordingState = .transcribing
 
-        if currentRecordingURL == nil {
-            // Streaming path: get final text from streaming engine
-            appState.recordingState = .transcribing
+        Task {
+            do {
+                var text = try await modelManager.stopStreaming()
+                text = stripTranscriptionArtifacts(text)
 
-            Task {
-                do {
-                    var text = try await modelManager.stopStreaming()
-                    text = stripTranscriptionArtifacts(text)
+                // Use the user's selected language for dictionary processing
+                let selectedLanguage = appState.dictionaryState.selectedLanguage
 
-                    // Use the user's selected language for dictionary processing
-                    let selectedLanguage = appState.dictionaryState.selectedLanguage
+                // Post-process with dictionary entries (applies to all engines)
+                let entries = appState.dictionaryState.enabledEntries(for: selectedLanguage)
+                if !entries.isEmpty {
+                    text = dictionaryProcessor.process(text, using: entries, language: selectedLanguage)
+                }
 
-                    // Post-process with dictionary entries (applies to all engines)
-                    let entries = appState.dictionaryState.enabledEntries(for: selectedLanguage)
-                    if !entries.isEmpty {
-                        text = dictionaryProcessor.process(text, using: entries, language: selectedLanguage)
-                    }
+                // AI refinement (if enabled)
+                text = try await applyRefinement(text)
 
-                    // AI refinement (if enabled)
-                    text = try await applyRefinement(text)
+                // Add to transcription history
+                let historyEntry = TranscriptionHistoryEntry(
+                    text: TranscriptionHistoryStorage.truncateIfNeeded(text),
+                    modelUsed: appState.currentlyLoadedModel?.displayName ?? "Unknown",
+                    language: selectedLanguage,
+                    audioLength: nil
+                )
+                await MainActor.run {
+                    appState.historyState.add(historyEntry)
+                }
 
-                    // Add to transcription history
-                    let historyEntry = TranscriptionHistoryEntry(
-                        text: TranscriptionHistoryStorage.truncateIfNeeded(text),
-                        modelUsed: appState.currentlyLoadedModel?.displayName ?? "Unknown",
-                        language: selectedLanguage,
-                        audioLength: nil
-                    )
-                    await MainActor.run {
-                        appState.historyState.add(historyEntry)
-                    }
-
-                    await MainActor.run {
-                        if !text.isEmpty {
-                            // Briefly show final text in overlay before dismissing
-                            appState.liveTranscriptionConfirmedText = text
-                            appState.liveTranscriptionUnconfirmedText = ""
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(500))
-                                self.dismissOverlay()
-                            }
-
-                            Task {
-                                await textInjector.inject(text: text)
-                            }
-                        } else {
-                            dismissOverlay()
+                await MainActor.run {
+                    if !text.isEmpty {
+                        // Briefly show final text in overlay (if shown) before dismissing
+                        appState.liveTranscriptionConfirmedText = text
+                        appState.liveTranscriptionUnconfirmedText = ""
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(500))
+                            self.dismissOverlay()
                         }
-                        appState.recordingState = .idle
-                    }
-                } catch {
-                    await MainActor.run {
-                        appState.lastError = "Transcription failed: \(error.localizedDescription)"
+
+                        Task {
+                            await textInjector.inject(text: text)
+                        }
+                    } else {
                         dismissOverlay()
-                        appState.recordingState = .idle
-                        hotkeyManager.resetToggleState()
                     }
+                    appState.recordingState = .idle
                 }
-            }
-        } else {
-            // File-based path: transcribe from audio file
-            guard let audioURL = audioRecorder.stopRecording() else {
-                dismissOverlay()
-                appState.recordingState = .idle
-                return
-            }
-
-            appState.recordingState = .transcribing
-
-            Task {
-                do {
-                    // Use the user's selected language for dictionary processing
-                    let selectedLanguage = appState.dictionaryState.selectedLanguage
-
-                    // Get dictionary hint for model prompting (mainly for WhisperKit)
-                    let dictionaryHint = appState.dictionaryState.promptText(for: selectedLanguage)
-
-                    // Transcribe with dictionary hint
-                    var text = try await modelManager.transcribe(
-                        audioURL: audioURL,
-                        dictionaryHint: dictionaryHint.isEmpty ? nil : dictionaryHint
-                    )
-                    text = stripTranscriptionArtifacts(text)
-
-                    // Post-process with dictionary entries (applies to all engines)
-                    let entries = appState.dictionaryState.enabledEntries(for: selectedLanguage)
-                    if !entries.isEmpty {
-                        text = dictionaryProcessor.process(text, using: entries, language: selectedLanguage)
-                    }
-
-                    // AI refinement (if enabled)
-                    text = try await applyRefinement(text)
-
-                    // Add to transcription history
-                    let historyEntry = TranscriptionHistoryEntry(
-                        text: TranscriptionHistoryStorage.truncateIfNeeded(text),
-                        modelUsed: appState.currentlyLoadedModel?.displayName ?? "Unknown",
-                        language: selectedLanguage,
-                        audioLength: nil
-                    )
-                    await MainActor.run {
-                        appState.historyState.add(historyEntry)
-                    }
-
-                    await MainActor.run {
-                        if !text.isEmpty {
-                            Task {
-                                await textInjector.inject(text: text)
-                            }
-                        }
-                        appState.recordingState = .idle
-                    }
-                } catch {
-                    await MainActor.run {
-                        appState.lastError = "Transcription failed: \(error.localizedDescription)"
-                        appState.recordingState = .idle
-                        hotkeyManager.resetToggleState()
-                    }
+            } catch {
+                await MainActor.run {
+                    appState.lastError = "Transcription failed: \(error.localizedDescription)"
+                    dismissOverlay()
+                    appState.recordingState = .idle
+                    hotkeyManager.resetToggleState()
                 }
-
-                audioRecorder.cleanup()
             }
         }
     }
@@ -362,10 +308,9 @@ class DictationController {
         hotkeyManager.stop()
         stopLiveTranscription()
         dismissOverlay()
-        if audioRecorder.isRecording {
-            _ = audioRecorder.stopRecording()
+        Task {
+            await AudioCaptureService.shared.stopAll()
         }
-        audioRecorder.cleanup()
     }
 }
 

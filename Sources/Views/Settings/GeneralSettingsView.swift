@@ -193,6 +193,11 @@ struct GeneralSettingsView: View {
                         }
                 }
 
+                // Microphone Section
+                SettingsSection(title: "Microphone") {
+                    MicrophonePickerView()
+                }
+
                 // Live Transcription Section
                 SettingsSection(title: "Live Transcription") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -496,4 +501,72 @@ extension Notification.Name {
     static let hotkeyChanged = Notification.Name("hotkeyChanged")
     static let hotkeyToggleModeChanged = Notification.Name("hotkeyToggleModeChanged")
     static let hotkeyCaptureModeChanged = Notification.Name("hotkeyCaptureModeChanged")
+}
+
+
+// MARK: - Microphone picker
+
+/// Lets the user pin dictation to a specific input device. "System Default" follows macOS's choice,
+/// which can land on a silent virtual device (Zoom, BlackHole…) when a headset disconnects.
+struct MicrophonePickerView: View {
+    @ObservedObject private var monitor = AudioInputDeviceMonitor.shared
+    @ObservedObject private var appState = AppState.shared
+    @AppStorage(AudioInputPreference.keepWarmKey) private var keepWarmSeconds: Int = 0
+
+    static let systemDefaultTag = "__system_default__"
+    static let keepWarmChoices: [(seconds: Int, label: String)] = [
+        (0, "Release immediately"), (10, "10 seconds"), (30, "30 seconds"), (120, "2 minutes"), (600, "10 minutes"),
+    ]
+
+    private var selection: Binding<String> {
+        Binding(
+            get: { appState.preferredInputDeviceUID ?? MicrophonePickerView.systemDefaultTag },
+            set: { appState.preferredInputDeviceUID = $0 == MicrophonePickerView.systemDefaultTag ? nil : $0 }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Input device", selection: selection) {
+                    Text(systemDefaultLabel).tag(MicrophonePickerView.systemDefaultTag)
+                    if !monitor.devices.isEmpty {
+                        Divider()
+                    }
+                    ForEach(monitor.devices) { device in
+                        Text("\(device.name) (\(device.transport))").tag(device.uid)
+                    }
+                    if let saved = appState.preferredInputDeviceUID,
+                       !monitor.devices.contains(where: { $0.uid == saved }) {
+                        Text("Previously selected device (disconnected)").tag(saved)
+                    }
+                }
+
+                Text("Takes effect on the next dictation. If the chosen device is unavailable, the system default is used.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Keep microphone ready after dictation", selection: $keepWarmSeconds) {
+                    ForEach(MicrophonePickerView.keepWarmChoices, id: \.seconds) { choice in
+                        Text(choice.label).tag(choice.seconds)
+                    }
+                }
+
+                Text("Starting the microphone takes a moment (about a second for the built-in mic, longer for AirPods). Keeping it ready makes back-to-back dictations start instantly, but the mic-in-use indicator stays on for that long and Bluetooth headsets stay in headset mode.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var systemDefaultLabel: String {
+        if let name = monitor.systemDefault?.name {
+            return "System Default (\(name))"
+        }
+        return "System Default"
+    }
 }

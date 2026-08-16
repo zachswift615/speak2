@@ -43,6 +43,8 @@ class StatusBarController {
             }
         case .loadingModel:
             statusText = "Loading model..."
+        case .startingMicrophone:
+            statusText = "Starting microphone..."
         case .recording:
             statusText = "Recording..."
         case .transcribing:
@@ -75,6 +77,36 @@ class StatusBarController {
         let modelItem = NSMenuItem(title: "Model", action: nil, keyEquivalent: "")
         modelItem.submenu = modelMenu
         menu.addItem(modelItem)
+
+        // Microphone submenu
+        let micMenu = NSMenu()
+        let monitor = AudioInputDeviceMonitor.shared
+        let preferredUID = appState.preferredInputDeviceUID
+        let defaultTitle = monitor.systemDefault.map { "System Default (\($0.name))" } ?? "System Default"
+        let defaultItem = NSMenuItem(title: defaultTitle, action: #selector(microphoneSelected(_:)), keyEquivalent: "")
+        defaultItem.target = self
+        defaultItem.representedObject = nil
+        defaultItem.state = preferredUID == nil ? .on : .off
+        micMenu.addItem(defaultItem)
+        if !monitor.devices.isEmpty {
+            micMenu.addItem(NSMenuItem.separator())
+        }
+        for device in monitor.devices {
+            let item = NSMenuItem(title: device.name, action: #selector(microphoneSelected(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = device.uid as NSString
+            item.state = device.uid == preferredUID ? .on : .off
+            micMenu.addItem(item)
+        }
+        if let preferredUID, !monitor.devices.contains(where: { $0.uid == preferredUID }) {
+            let missing = NSMenuItem(title: "Selected device not connected", action: nil, keyEquivalent: "")
+            missing.isEnabled = false
+            missing.state = .on
+            micMenu.addItem(missing)
+        }
+        let micItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
+        micItem.submenu = micMenu
+        menu.addItem(micItem)
 
         // Hotkey submenu
         let hotkeyMenu = NSMenu()
@@ -211,6 +243,11 @@ class StatusBarController {
         }
     }
 
+    @objc private func microphoneSelected(_ sender: NSMenuItem) {
+        appState.preferredInputDeviceUID = (sender.representedObject as? NSString) as String?
+        setupMenu()
+    }
+
     @objc private func hotkeySelected(_ sender: NSMenuItem) {
         guard let option = sender.representedObject as? HotkeyOption else { return }
         dictationController?.updateHotkey(option)
@@ -254,6 +291,15 @@ class StatusBarController {
             .sink { [weak self] state in
                 self?.updateIcon(for: state)
                 self?.setupMenu()  // Update status line
+            }
+            .store(in: &cancellables)
+
+        // Rebuild menu when the microphone list, system default, or selection changes
+        AudioInputDeviceMonitor.shared.$devices
+            .combineLatest(AudioInputDeviceMonitor.shared.$systemDefault, appState.$preferredInputDeviceUID)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _, _ in
+                self?.setupMenu()
             }
             .store(in: &cancellables)
 
@@ -302,6 +348,10 @@ class StatusBarController {
             color = .systemYellow
             startSpinner()
             return  // Spinner handles icon updates
+        case .startingMicrophone:
+            // Hotkey is down but the mic isn't delivering audio yet — not red until it is.
+            symbolName = "mic"
+            color = .systemOrange
         case .recording:
             symbolName = "mic.fill"
             color = .systemRed
