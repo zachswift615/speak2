@@ -4,9 +4,18 @@ import SwiftUI
 enum RecordingState {
     case idle
     case loadingModel
+    /// Hotkey pressed; the microphone is being brought up but no audio has arrived yet.
+    /// (Bluetooth headsets can take a second or more here.)
+    case startingMicrophone
+    /// Audio is actually flowing from the microphone.
     case recording
     case transcribing
     case refining
+
+    /// True while the hotkey is held / toggled on, whether or not audio has started flowing yet.
+    var isCapturing: Bool {
+        self == .startingMicrophone || self == .recording
+    }
 }
 
 enum TranscriptionModel: String, CaseIterable {
@@ -344,7 +353,7 @@ enum RefinementMode: String, CaseIterable {
 @MainActor
 class AppState: ObservableObject {
     static let shared = AppState()
-    static let appVersion = "1.9.0"
+    static let appVersion = "1.10.0"
 
     @Published var recordingState: RecordingState = .idle
     @Published var isModelLoaded: Bool = false
@@ -390,6 +399,15 @@ class AppState: ObservableObject {
 
     // Transcription history
     let historyState = TranscriptionHistoryState()
+
+    // Microphone selection (nil = System Default). Mirrors AudioInputPreference so views can observe it.
+    @Published var preferredInputDeviceUID: String? = AudioInputPreference.savedUID {
+        didSet {
+            if AudioInputPreference.savedUID != preferredInputDeviceUID {
+                AudioInputPreference.savedUID = preferredInputDeviceUID
+            }
+        }
+    }
 
     // Live transcription
     @Published var liveTranscriptionEnabled: Bool = UserDefaults.standard.bool(forKey: "liveTranscriptionEnabled") {
