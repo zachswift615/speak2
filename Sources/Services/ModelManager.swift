@@ -13,7 +13,7 @@ class ModelManager: ObservableObject {
         switch appState.currentlyLoadedModel {
         case .whisperTinyEn, .whisperBaseEn, .whisperSmallEn, .whisperLargeV3, .whisperLargeV3Turbo:
             return whisperTranscriber
-        case .parakeetV3:
+        case .parakeetV2, .parakeetV3:
             return parakeetTranscriber
         case nil:
             return nil
@@ -25,7 +25,7 @@ class ModelManager: ObservableObject {
         switch appState.currentlyLoadedModel {
         case .whisperTinyEn, .whisperBaseEn, .whisperSmallEn, .whisperLargeV3, .whisperLargeV3Turbo:
             return whisperTranscriber
-        case .parakeetV3:
+        case .parakeetV2, .parakeetV3:
             return parakeetTranscriber
         case nil:
             return nil
@@ -62,8 +62,8 @@ class ModelManager: ObservableObject {
             TranscriptionModel.setStoredWhisperPath(modelFolder, for: model)
             whisperTranscriber = transcriber
 
-        case .parakeetV3:
-            let transcriber = ParakeetTranscriber()
+        case .parakeetV2, .parakeetV3:
+            let transcriber = ParakeetTranscriber(version: model == .parakeetV2 ? .v2 : .v3)
             try await transcriber.loadModel { progress in
                 Task { @MainActor in
                     self.appState.modelDownloadProgress = progress

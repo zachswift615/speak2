@@ -30,7 +30,22 @@ struct ModelsSettingsView: View {
                         Divider()
                             .padding(.leading, 32)
 
-                        // Parakeet row
+                        // Parakeet rows
+                        ModelSettingsRow(
+                            model: .parakeetV2,
+                            isSelected: appState.selectedModel == .parakeetV2,
+                            isDownloaded: appState.downloadedModels.contains(.parakeetV2),
+                            isDownloading: downloadingModel == .parakeetV2,
+                            isCurrentlyLoaded: appState.currentlyLoadedModel == .parakeetV2,
+                            progress: downloadingModel == .parakeetV2 ? appState.modelDownloadProgress : 0,
+                            onSelect: { selectModel(.parakeetV2) },
+                            onDownload: { confirmAndDownload(.parakeetV2) },
+                            onDelete: { deleteModel(.parakeetV2) }
+                        )
+
+                        Divider()
+                            .padding(.leading, 32)
+
                         ModelSettingsRow(
                             model: .parakeetV3,
                             isSelected: appState.selectedModel == .parakeetV3,
