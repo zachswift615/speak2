@@ -24,6 +24,7 @@ enum TranscriptionModel: String, CaseIterable {
     case whisperSmallEn = "whisper-small.en"
     case whisperLargeV3 = "whisper-large-v3"
     case whisperLargeV3Turbo = "whisper-large-v3-turbo"
+    case parakeetV2 = "parakeet-v2"
     case parakeetV3 = "parakeet-v3"
 
     var displayName: String {
@@ -33,6 +34,7 @@ enum TranscriptionModel: String, CaseIterable {
         case .whisperSmallEn: return "Whisper (small.en)"
         case .whisperLargeV3: return "Whisper (large-v3)"
         case .whisperLargeV3Turbo: return "Whisper (large-v3 turbo)"
+        case .parakeetV2: return "Parakeet v2"
         case .parakeetV3: return "Parakeet v3"
         }
     }
@@ -44,6 +46,7 @@ enum TranscriptionModel: String, CaseIterable {
         case .whisperSmallEn: return "English only – better accuracy, ~460 MB"
         case .whisperLargeV3: return "English + multilingual – best accuracy, ~3 GB"
         case .whisperLargeV3Turbo: return "English + multilingual – faster large model, ~954 MB"
+        case .parakeetV2: return "English only – most accurate for English dictation"
         case .parakeetV3: return "25 languages – best for multilingual users"
         }
     }
@@ -55,6 +58,7 @@ enum TranscriptionModel: String, CaseIterable {
         case .whisperSmallEn: return "~460 MB"
         case .whisperLargeV3: return "~3 GB"
         case .whisperLargeV3Turbo: return "~954 MB"
+        case .parakeetV2: return "~600 MB"
         case .parakeetV3: return "~600 MB"
         }
     }
@@ -77,7 +81,18 @@ enum TranscriptionModel: String, CaseIterable {
         case .whisperSmallEn: return "small.en"
         case .whisperLargeV3: return "large-v3"
         case .whisperLargeV3Turbo: return "openai_whisper-large-v3_turbo_954MB"
-        case .parakeetV3: return nil
+        case .parakeetV2, .parakeetV3: return nil
+        }
+    }
+
+    /// FluidAudio cache folder name for Parakeet models (nil for Whisper models).
+    /// Matches `Repo.folderName` in FluidAudio so `isDownloaded` and deletion see the
+    /// same directory the library downloads into.
+    var parakeetFolderName: String? {
+        switch self {
+        case .parakeetV2: return "parakeet-tdt-0.6b-v2-coreml"
+        case .parakeetV3: return "parakeet-tdt-0.6b-v3-coreml"
+        default: return nil
         }
     }
 
@@ -101,7 +116,8 @@ enum TranscriptionModel: String, CaseIterable {
 
     /// Path where this model's files are stored.
     /// Whisper: uses persisted path from WhisperKit.download if set, else default under Application Support.
-    /// Parakeet: fixed FluidAudio path.
+    /// Parakeet: the per-version folder inside FluidAudio's cache, so each version can be
+    /// downloaded and deleted independently.
     var storagePath: URL {
         switch self {
         case .whisperTinyEn, .whisperBaseEn, .whisperSmallEn, .whisperLargeV3, .whisperLargeV3Turbo:
@@ -109,9 +125,11 @@ enum TranscriptionModel: String, CaseIterable {
                 return stored
             }
             return Self.whisperKitBase.appendingPathComponent(whisperVariant ?? "unknown")
-        case .parakeetV3:
+        case .parakeetV2, .parakeetV3:
             return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("FluidAudio")
+                .appendingPathComponent("Models")
+                .appendingPathComponent(parakeetFolderName!)
         }
     }
 
@@ -528,7 +546,7 @@ class AppState: ObservableObject {
             return folderLower.contains("large-v3") && !folderLower.contains("turbo")
         case .whisperLargeV3Turbo:
             return folderLower.contains("large") && folderLower.contains("turbo")
-        case .parakeetV3:
+        case .parakeetV2, .parakeetV3:
             return false
         }
     }
