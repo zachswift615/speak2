@@ -65,7 +65,22 @@ struct SetupView: View {
                     Divider()
                         .padding(.leading, 32)
 
-                    // Parakeet row
+                    // Parakeet rows
+                    ModelRow(
+                        model: .parakeetV2,
+                        isSelected: appState.selectedModel == .parakeetV2,
+                        isDownloaded: appState.downloadedModels.contains(.parakeetV2),
+                        isDownloading: downloadingModel == .parakeetV2,
+                        isCurrentlyLoaded: appState.currentlyLoadedModel == .parakeetV2,
+                        progress: downloadingModel == .parakeetV2 ? appState.modelDownloadProgress : 0,
+                        onSelect: { selectModel(.parakeetV2) },
+                        onDownload: { confirmAndDownload(.parakeetV2) },
+                        onDelete: { deleteModel(.parakeetV2) }
+                    )
+
+                    Divider()
+                        .padding(.leading, 32)
+
                     ModelRow(
                         model: .parakeetV3,
                         isSelected: appState.selectedModel == .parakeetV3,
@@ -748,6 +763,7 @@ extension TranscriptionModel {
         case .whisperSmallEn: return "small.en"
         case .whisperLargeV3: return "large-v3"
         case .whisperLargeV3Turbo: return "large-v3 turbo"
+        case .parakeetV2: return "v2"
         case .parakeetV3: return "v3"
         }
     }
@@ -760,7 +776,7 @@ extension TranscriptionModel {
         case .whisperSmallEn: return "Better accuracy"
         case .whisperLargeV3: return "Best accuracy, multilingual"
         case .whisperLargeV3Turbo: return "Fast + accurate, multilingual"
-        case .parakeetV3: return description
+        case .parakeetV2, .parakeetV3: return description
         }
     }
 }

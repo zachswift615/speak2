@@ -31,7 +31,12 @@ actor ParakeetTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
         asrManager != nil
     }
 
-    init(capture: AudioCaptureService = .shared) {
+    /// Which Parakeet TDT checkpoint to load. v2 is English-only and scores better on
+    /// English than v3; v3 adds 24 more European languages.
+    private let version: AsrModelVersion
+
+    init(version: AsrModelVersion = .v3, capture: AudioCaptureService = .shared) {
+        self.version = version
         self.capture = capture
     }
 
@@ -47,7 +52,7 @@ actor ParakeetTranscriber: TranscriptionEngine, StreamingTranscriptionEngine {
             progressHandler(0.1)
         }
 
-        let models = try await AsrModels.downloadAndLoad(version: .v3)
+        let models = try await AsrModels.downloadAndLoad(version: version)
 
         Task { @MainActor in
             progressHandler(0.8)
