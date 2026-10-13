@@ -52,8 +52,14 @@ class ModelManager: ObservableObject {
         switch model {
         case .whisperTinyEn, .whisperBaseEn, .whisperSmallEn, .whisperLargeV3, .whisperLargeV3Turbo:
             let variant = model.whisperVariant!
+            // If already downloaded, pass the known local folder so loadModel can skip the
+            // Hugging Face Hub round-trip entirely instead of re-verifying it over the network.
+            let existingModelFolder = model.isDownloaded ? TranscriptionModel.getStoredWhisperPath(for: model) : nil
             let transcriber = WhisperTranscriber()
-            let modelFolder = try await transcriber.loadModel(variant: variant) { progress in
+            let modelFolder = try await transcriber.loadModel(
+                variant: variant,
+                existingModelFolder: existingModelFolder
+            ) { progress in
                 Task { @MainActor in
                     self.appState.modelDownloadProgress = progress
                     progressHandler(progress)
