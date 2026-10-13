@@ -271,20 +271,13 @@ class DictationController {
             }
 
         case .external:
-            let ollamaURL = UserDefaults.standard.string(forKey: "ollamaURL") ?? "http://localhost:11434"
-            let ollamaModel = UserDefaults.standard.string(forKey: "ollamaModel") ?? "gemma3:4b"
-            if !ollamaURL.isEmpty && !ollamaModel.isEmpty {
+            let refiner = ExternalRefiner.saved
+            if refiner.isConfigured {
                 await MainActor.run { appState.recordingState = .refining }
                 do {
-                    result = try await OllamaRefiner.refine(
-                        text: result,
-                        baseURL: ollamaURL,
-                        model: ollamaModel,
-                        customPrompt: customPrompt,
-                        languageName: languageName
-                    )
+                    result = try await refiner.refine(text: result, customPrompt: customPrompt, languageName: languageName)
                 } catch {
-                    print("Ollama refinement skipped: \(error.localizedDescription)")
+                    print("External refinement skipped: \(error.localizedDescription)")
                 }
             }
 

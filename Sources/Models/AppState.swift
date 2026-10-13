@@ -387,7 +387,7 @@ enum RefinementMode: String, CaseIterable {
         switch self {
         case .off: return "Off"
         case .builtIn: return "Built-in (recommended)"
-        case .external: return "External Server (Ollama)"
+        case .external: return "External Server"
         }
     }
 
@@ -408,6 +408,28 @@ enum RefinementMode: String, CaseIterable {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "refinementMode")
+        }
+    }
+}
+
+/// The API an external refinement server speaks.
+enum ExternalAPIFormat: String, CaseIterable {
+    case ollama
+    case openAICompatible
+
+    var displayName: String {
+        switch self {
+        case .ollama: return "Ollama"
+        case .openAICompatible: return "OpenAI-compatible"
+        }
+    }
+
+    static var saved: ExternalAPIFormat {
+        get {
+            UserDefaults.standard.string(forKey: "externalAPIFormat").flatMap(ExternalAPIFormat.init) ?? .ollama
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "externalAPIFormat")
         }
     }
 }

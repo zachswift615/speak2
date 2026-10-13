@@ -24,11 +24,21 @@ struct OllamaRefiner {
         return "\n\nThe message is written in \(languageName). Always write your response in \(languageName). Never translate the message into another language."
     }
 
+    /// The cleanup instructions: the custom prompt (or the default) plus the language directive.
+    static func instructions(customPrompt: String? = nil, languageName: String? = nil) -> String {
+        let promptBase = customPrompt.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? defaultPrompt
+        return promptBase + languageDirective(for: languageName)
+    }
+
+    /// Wrap the transcription in tags so the model treats it as text to edit, not instructions.
+    static func wrapTranscription(_ text: String) -> String {
+        "<transcription>\(text)</transcription>"
+    }
+
     /// Build the full prompt from user text, an optional custom prompt, and an optional
     /// language directive.
     static func buildPrompt(text: String, customPrompt: String? = nil, languageName: String? = nil) -> String {
-        let promptBase = customPrompt.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? defaultPrompt
-        return "\(promptBase)\(languageDirective(for: languageName))\n\n<transcription>\(text)</transcription>"
+        "\(instructions(customPrompt: customPrompt, languageName: languageName))\n\n\(wrapTranscription(text))"
     }
 
     /// Build and validate the API URL from a base URL string.

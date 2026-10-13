@@ -7,6 +7,10 @@ struct AIRefineSettingsView: View {
     @AppStorage("ollamaURL") private var ollamaURL: String = "http://localhost:11434"
     @AppStorage("ollamaModel") private var ollamaModel: String = "gemma3:4b"
     @AppStorage("ollamaPrompt") private var ollamaPrompt: String = ""
+    @AppStorage("externalAPIFormat") private var apiFormat: ExternalAPIFormat = .ollama
+    @AppStorage("openAIBaseURL") private var openAIBaseURL: String = ""
+    @AppStorage("openAIModel") private var openAIModel: String = ""
+    @State private var apiKey: String = KeychainStore.string(for: ExternalRefiner.apiKeyAccount) ?? ""
 
     @AppStorage(MLXRefiner.exampleUser1Key) private var exampleUser1: String = ""
     @AppStorage(MLXRefiner.exampleAssistant1Key) private var exampleAssistant1: String = ""
@@ -81,13 +85,42 @@ struct AIRefineSettingsView: View {
 
                 // External server section
                 if refinementMode == .external {
-                    SettingsSection(title: "Ollama Configuration") {
+                    SettingsSection(title: "External Server") {
                         VStack(alignment: .leading, spacing: 14) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("API Format")
+                                    .fontWeight(.medium)
+                                Picker("API Format", selection: $apiFormat) {
+                                    ForEach(ExternalAPIFormat.allCases, id: \.self) { format in
+                                        Text(format.displayName).tag(format)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
+                                .fixedSize()
+                                .onChange(of: apiFormat) { _, _ in
+                                    testStatus = .idle
+                                }
+                                if apiFormat == .openAICompatible {
+                                    Text("For LiteLLM, LM Studio, vLLM, llama.cpp, OpenAI, OpenRouter, and other servers with a /v1/chat/completions endpoint.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+
+                            Divider()
+
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Server URL")
                                     .fontWeight(.medium)
-                                TextField("http://localhost:11434", text: $ollamaURL)
+                                TextField(apiFormat == .ollama ? "http://localhost:11434" : "http://localhost:4000/v1", text: serverURL)
                                     .textFieldStyle(.roundedBorder)
+                                if let host = ExternalRefiner.remoteHost(for: serverURL.wrappedValue) {
+                                    Label("Dictated text will be sent to \(host).", systemImage: "network")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
 
                             Divider()
@@ -95,11 +128,30 @@ struct AIRefineSettingsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Model Name")
                                     .fontWeight(.medium)
-                                TextField("gemma3:4b", text: $ollamaModel)
+                                TextField(apiFormat == .ollama ? "gemma3:4b" : "gpt-4o-mini", text: modelName)
                                     .textFieldStyle(.roundedBorder)
-                                Text("The model must already be pulled in Ollama (e.g. ollama pull gemma3:4b)")
+                                Text(apiFormat == .ollama
+                                     ? "The model must already be pulled in Ollama (e.g. ollama pull gemma3:4b)"
+                                     : "The model name exactly as your server lists it")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                            }
+
+                            if apiFormat == .openAICompatible {
+                                Divider()
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("API Key")
+                                        .fontWeight(.medium)
+                                    SecureField("Optional for local servers", text: $apiKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .onChange(of: apiKey) { _, newValue in
+                                            KeychainStore.set(newValue, for: ExternalRefiner.apiKeyAccount)
+                                        }
+                                    Text("Stored in your Keychain")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
 
                             Divider()
@@ -108,7 +160,7 @@ struct AIRefineSettingsView: View {
                                 Button("Test Connection") {
                                     testConnection()
                                 }
-                                .disabled(ollamaURL.isEmpty || ollamaModel.isEmpty)
+                                .disabled(!externalRefiner.isConfigured)
 
                                 testStatusLabel
                             }
@@ -314,15 +366,29 @@ struct AIRefineSettingsView: View {
         }
     }
 
+    private var serverURL: Binding<String> {
+        apiFormat == .ollama ? $ollamaURL : $openAIBaseURL
+    }
+
+    private var modelName: Binding<String> {
+        apiFormat == .ollama ? $ollamaModel : $openAIModel
+    }
+
+    private var externalRefiner: ExternalRefiner {
+        ExternalRefiner(
+            format: apiFormat,
+            baseURL: serverURL.wrappedValue,
+            model: modelName.wrappedValue,
+            apiKey: apiFormat == .openAICompatible ? apiKey : nil
+        )
+    }
+
     private func testConnection() {
         testStatus = .testing
+        let refiner = externalRefiner
         Task {
             do {
-                _ = try await OllamaRefiner.refine(
-                    text: "hello world",
-                    baseURL: ollamaURL,
-                    model: ollamaModel
-                )
+                _ = try await refiner.refine(text: "hello world")
                 await MainActor.run {
                     testStatus = .success("Connected — got response")
                 }
