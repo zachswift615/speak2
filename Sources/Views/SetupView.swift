@@ -17,6 +17,39 @@ struct SetupView: View {
     }
 
     var body: some View {
+        ScrollView {
+            setupContent
+        }
+        .frame(width: 520)
+        .frame(minHeight: 400)
+        .alert("Download Large Model?", isPresented: $showLargeDownloadAlert) {
+            Button("Download") {
+                if let model = pendingLargeDownload {
+                    downloadModel(model)
+                }
+                pendingLargeDownload = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingLargeDownload = nil
+            }
+        } message: {
+            if let model = pendingLargeDownload {
+                Text("\(model.displayName) is \(model.estimatedSize). This may take a while to download and requires significant disk space.")
+            }
+        }
+        .onAppear {
+            checkPermissions()
+            appState.refreshDownloadedModels()
+
+            // Auto-load the selected model if it's downloaded but not loaded
+            // (e.g., after migration or app restart)
+            if appState.downloadedModels.contains(appState.selectedModel) && !appState.isModelLoaded {
+                downloadModel(appState.selectedModel)
+            }
+        }
+    }
+
+    private var setupContent: some View {
         VStack(spacing: 24) {
             Text("Speak2 Setup")
                 .font(.largeTitle)
@@ -93,33 +126,6 @@ struct SetupView: View {
             }
         }
         .padding(32)
-        .frame(width: 520)
-        .fixedSize(horizontal: false, vertical: true)
-        .alert("Download Large Model?", isPresented: $showLargeDownloadAlert) {
-            Button("Download") {
-                if let model = pendingLargeDownload {
-                    downloadModel(model)
-                }
-                pendingLargeDownload = nil
-            }
-            Button("Cancel", role: .cancel) {
-                pendingLargeDownload = nil
-            }
-        } message: {
-            if let model = pendingLargeDownload {
-                Text("\(model.displayName) is \(model.estimatedSize). This may take a while to download and requires significant disk space.")
-            }
-        }
-        .onAppear {
-            checkPermissions()
-            appState.refreshDownloadedModels()
-
-            // Auto-load the selected model if it's downloaded but not loaded
-            // (e.g., after migration or app restart)
-            if appState.downloadedModels.contains(appState.selectedModel) && !appState.isModelLoaded {
-                downloadModel(appState.selectedModel)
-            }
-        }
     }
 
     private func checkPermissions() {
