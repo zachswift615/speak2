@@ -63,7 +63,7 @@ class ModelManager: ObservableObject {
             whisperTranscriber = transcriber
 
         case .parakeetV2, .parakeetV3:
-            let transcriber = ParakeetTranscriber(version: model == .parakeetV2 ? .v2 : .v3)
+            let transcriber = ParakeetTranscriber(version: model.parakeetVersion!)
             try await transcriber.loadModel { progress in
                 Task { @MainActor in
                     self.appState.modelDownloadProgress = progress

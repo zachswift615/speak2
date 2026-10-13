@@ -4,7 +4,7 @@ import AVFoundation
 struct SetupView: View {
     @ObservedObject var appState = AppState.shared
     @State private var downloadingModel: TranscriptionModel? = nil
-    @State private var isWhisperExpanded = false
+    @State private var expandedFamilies: Set<ModelFamily> = []
     @State private var showLargeDownloadAlert = false
     @State private var pendingLargeDownload: TranscriptionModel? = nil
     var modelManager: ModelManager?
@@ -49,49 +49,25 @@ struct SetupView: View {
 
                 // Model table
                 VStack(spacing: 0) {
-                    // Whisper section with disclosure
-                    WhisperModelSection(
-                        isExpanded: $isWhisperExpanded,
-                        selectedModel: appState.selectedModel,
-                        downloadingModel: downloadingModel,
-                        downloadedModels: appState.downloadedModels,
-                        currentlyLoadedModel: appState.currentlyLoadedModel,
-                        progress: appState.modelDownloadProgress,
-                        onSelect: selectModel,
-                        onDownload: confirmAndDownload,
-                        onDelete: deleteModel
-                    )
+                    ForEach(ModelFamily.allCases, id: \.self) { family in
+                        if family != ModelFamily.allCases.first {
+                            Divider()
+                                .padding(.leading, 32)
+                        }
 
-                    Divider()
-                        .padding(.leading, 32)
-
-                    // Parakeet rows
-                    ModelRow(
-                        model: .parakeetV2,
-                        isSelected: appState.selectedModel == .parakeetV2,
-                        isDownloaded: appState.downloadedModels.contains(.parakeetV2),
-                        isDownloading: downloadingModel == .parakeetV2,
-                        isCurrentlyLoaded: appState.currentlyLoadedModel == .parakeetV2,
-                        progress: downloadingModel == .parakeetV2 ? appState.modelDownloadProgress : 0,
-                        onSelect: { selectModel(.parakeetV2) },
-                        onDownload: { confirmAndDownload(.parakeetV2) },
-                        onDelete: { deleteModel(.parakeetV2) }
-                    )
-
-                    Divider()
-                        .padding(.leading, 32)
-
-                    ModelRow(
-                        model: .parakeetV3,
-                        isSelected: appState.selectedModel == .parakeetV3,
-                        isDownloaded: appState.downloadedModels.contains(.parakeetV3),
-                        isDownloading: downloadingModel == .parakeetV3,
-                        isCurrentlyLoaded: appState.currentlyLoadedModel == .parakeetV3,
-                        progress: downloadingModel == .parakeetV3 ? appState.modelDownloadProgress : 0,
-                        onSelect: { selectModel(.parakeetV3) },
-                        onDownload: { confirmAndDownload(.parakeetV3) },
-                        onDelete: { deleteModel(.parakeetV3) }
-                    )
+                        ModelFamilySection(
+                            family: family,
+                            isExpanded: expansionBinding(for: family),
+                            selectedModel: appState.selectedModel,
+                            downloadingModel: downloadingModel,
+                            downloadedModels: appState.downloadedModels,
+                            currentlyLoadedModel: appState.currentlyLoadedModel,
+                            progress: appState.modelDownloadProgress,
+                            onSelect: selectModel,
+                            onDownload: confirmAndDownload,
+                            onDelete: deleteModel
+                        )
+                    }
                 }
                 .background(Color(NSColor.textBackgroundColor).opacity(0.5))
                 .cornerRadius(8)
@@ -175,6 +151,19 @@ struct SetupView: View {
         }
     }
 
+    private func expansionBinding(for family: ModelFamily) -> Binding<Bool> {
+        Binding(
+            get: { expandedFamilies.contains(family) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedFamilies.insert(family)
+                } else {
+                    expandedFamilies.remove(family)
+                }
+            }
+        )
+    }
+
     private func selectModel(_ model: TranscriptionModel) {
         appState.selectedModel = model
         TranscriptionModel.saved = model
@@ -232,9 +221,10 @@ struct SetupView: View {
     }
 }
 
-// MARK: - Whisper Model Section
+// MARK: - Model Family Section
 
-struct WhisperModelSection: View {
+struct ModelFamilySection: View {
+    let family: ModelFamily
     @Binding var isExpanded: Bool
     let selectedModel: TranscriptionModel
     let downloadingModel: TranscriptionModel?
@@ -245,24 +235,17 @@ struct WhisperModelSection: View {
     let onDownload: (TranscriptionModel) -> Void
     let onDelete: (TranscriptionModel) -> Void
 
-    private static let whisperModels: [TranscriptionModel] = [
-        .whisperTinyEn, .whisperBaseEn, .whisperSmallEn, .whisperLargeV3, .whisperLargeV3Turbo
-    ]
-
-    private var isAnyWhisperSelected: Bool {
-        selectedModel.whisperVariant != nil
+    private var isFamilySelected: Bool {
+        selectedModel.family == family
     }
 
-    private var activeWhisperModel: TranscriptionModel {
-        if selectedModel.whisperVariant != nil {
-            return selectedModel
-        }
-        return .whisperBaseEn
+    private var activeModel: TranscriptionModel {
+        isFamilySelected ? selectedModel : family.defaultModel
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main Whisper row (collapsed view)
+            // Family row (collapsed view)
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isExpanded.toggle()
@@ -277,30 +260,30 @@ struct WhisperModelSection: View {
                         .frame(width: 16)
 
                     // Radio button
-                    Image(systemName: isAnyWhisperSelected ? "circle.inset.filled" : "circle")
-                        .foregroundColor(isAnyWhisperSelected ? .accentColor : .secondary)
+                    Image(systemName: isFamilySelected ? "circle.inset.filled" : "circle")
+                        .foregroundColor(isFamilySelected ? .accentColor : .secondary)
                         .font(.body)
 
                     // Name
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text("Whisper")
+                            Text(family.name)
                                 .fontWeight(.medium)
                                 .foregroundStyle(.primary)
-                            if !isExpanded && isAnyWhisperSelected {
-                                Text(activeWhisperModel.variantName)
+                            if !isExpanded && isFamilySelected {
+                                Text(activeModel.variantName)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            if currentlyLoadedModel?.whisperVariant != nil {
+                            if currentlyLoadedModel?.family == family {
                                 ActiveBadge()
                             }
                         }
                         HStack(spacing: 4) {
-                            Text("OpenAI's speech recognition")
+                            Text(family.subtitle)
                             if !isExpanded {
                                 Text("·")
-                                Text("5 sizes available")
+                                Text(family.variantsSummary)
                             }
                         }
                         .font(.caption)
@@ -312,12 +295,12 @@ struct WhisperModelSection: View {
                     // Status column (only show when collapsed)
                     if !isExpanded {
                         ModelStatusView(
-                            model: activeWhisperModel,
-                            isDownloaded: downloadedModels.contains(activeWhisperModel),
-                            isDownloading: downloadingModel == activeWhisperModel,
-                            progress: downloadingModel == activeWhisperModel ? progress : 0,
-                            onDownload: { onDownload(activeWhisperModel) },
-                            onDelete: { onDelete(activeWhisperModel) }
+                            model: activeModel,
+                            isDownloaded: downloadedModels.contains(activeModel),
+                            isDownloading: downloadingModel == activeModel,
+                            progress: downloadingModel == activeModel ? progress : 0,
+                            onDownload: { onDownload(activeModel) },
+                            onDelete: { onDelete(activeModel) }
                         )
                     }
                 }
@@ -327,14 +310,14 @@ struct WhisperModelSection: View {
             }
             .buttonStyle(.plain)
 
-            // Expanded Whisper variants
+            // Expanded variants
             if isExpanded {
                 VStack(spacing: 0) {
-                    ForEach(Self.whisperModels, id: \.self) { model in
+                    ForEach(family.models, id: \.self) { model in
                         Divider()
                             .padding(.leading, 56)
 
-                        WhisperVariantRow(
+                        ModelVariantRow(
                             model: model,
                             isSelected: selectedModel == model,
                             isDownloaded: downloadedModels.contains(model),
@@ -353,9 +336,9 @@ struct WhisperModelSection: View {
     }
 }
 
-// MARK: - Whisper Variant Row (indented)
+// MARK: - Model Variant Row (indented)
 
-struct WhisperVariantRow: View {
+struct ModelVariantRow: View {
     let model: TranscriptionModel
     let isSelected: Bool
     let isDownloaded: Bool
@@ -404,68 +387,6 @@ struct WhisperVariantRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if isDownloaded && !isDownloading {
-                onSelect()
-            } else if !isDownloaded && !isDownloading {
-                onDownload()
-            }
-        }
-    }
-}
-
-// MARK: - Model Row (for Parakeet)
-
-struct ModelRow: View {
-    let model: TranscriptionModel
-    let isSelected: Bool
-    let isDownloaded: Bool
-    let isDownloading: Bool
-    let isCurrentlyLoaded: Bool
-    let progress: Double
-    let onSelect: () -> Void
-    let onDownload: () -> Void
-    let onDelete: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Spacer to align with Whisper rows
-            Color.clear.frame(width: 16)
-
-            // Radio button
-            Image(systemName: isSelected ? "circle.inset.filled" : "circle")
-                .foregroundColor(isSelected ? .accentColor : .secondary)
-                .font(.body)
-
-            // Name and description
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(model.displayName)
-                        .fontWeight(.medium)
-                    if isCurrentlyLoaded {
-                        ActiveBadge()
-                    }
-                }
-                Text(model.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            // Status
-            ModelStatusView(
-                model: model,
-                isDownloaded: isDownloaded,
-                isDownloading: isDownloading,
-                progress: progress,
-                onDownload: onDownload,
-                onDelete: onDelete
-            )
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture {
             if isDownloaded && !isDownloading {
@@ -768,7 +689,7 @@ extension TranscriptionModel {
         }
     }
 
-    /// Short description for Whisper variants
+    /// Short description shown in a family's expanded variant list
     var variantDescription: String {
         switch self {
         case .whisperTinyEn: return "Smallest, fastest"
@@ -776,7 +697,8 @@ extension TranscriptionModel {
         case .whisperSmallEn: return "Better accuracy"
         case .whisperLargeV3: return "Best accuracy, multilingual"
         case .whisperLargeV3Turbo: return "Fast + accurate, multilingual"
-        case .parakeetV2, .parakeetV3: return description
+        case .parakeetV2: return "English only, most accurate"
+        case .parakeetV3: return "25 European languages"
         }
     }
 }

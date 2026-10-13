@@ -21,12 +21,25 @@ final class TranscriptionModelTests: XCTestCase {
     func testParakeetModelsAreNotWhisperVariants() {
         XCTAssertNil(TranscriptionModel.parakeetV2.whisperVariant)
         XCTAssertNil(TranscriptionModel.parakeetV3.whisperVariant)
-        XCTAssertNil(TranscriptionModel.whisperBaseEn.parakeetFolderName)
+        XCTAssertNil(TranscriptionModel.whisperBaseEn.parakeetVersion)
     }
 
     func testOnlyMultilingualWhisperSupportsLanguageSelection() {
         XCTAssertFalse(TranscriptionModel.parakeetV2.supportsLanguageSelection)
         XCTAssertFalse(TranscriptionModel.parakeetV3.supportsLanguageSelection)
         XCTAssertTrue(TranscriptionModel.whisperLargeV3.supportsLanguageSelection)
+    }
+
+    func testEveryModelBelongsToExactlyOneFamily() {
+        let grouped = ModelFamily.allCases.flatMap(\.models)
+        XCTAssertEqual(Set(grouped), Set(TranscriptionModel.allCases))
+        XCTAssertEqual(grouped.count, TranscriptionModel.allCases.count)
+        XCTAssertEqual(ModelFamily.parakeet.models, [.parakeetV2, .parakeetV3])
+    }
+
+    func testFamilyDefaultModelBelongsToFamily() {
+        for family in ModelFamily.allCases {
+            XCTAssertEqual(family.defaultModel.family, family)
+        }
     }
 }

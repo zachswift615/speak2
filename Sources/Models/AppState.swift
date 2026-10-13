@@ -1,3 +1,4 @@
+import FluidAudio
 import Foundation
 import SwiftUI
 
@@ -39,18 +40,6 @@ enum TranscriptionModel: String, CaseIterable {
         }
     }
 
-    var description: String {
-        switch self {
-        case .whisperTinyEn: return "English only – smallest, ~75 MB"
-        case .whisperBaseEn: return "English only – fast, ~140 MB"
-        case .whisperSmallEn: return "English only – better accuracy, ~460 MB"
-        case .whisperLargeV3: return "English + multilingual – best accuracy, ~3 GB"
-        case .whisperLargeV3Turbo: return "English + multilingual – faster large model, ~954 MB"
-        case .parakeetV2: return "English only – most accurate for English dictation"
-        case .parakeetV3: return "25 languages – best for multilingual users"
-        }
-    }
-
     var estimatedSize: String {
         switch self {
         case .whisperTinyEn: return "~75 MB"
@@ -85,15 +74,17 @@ enum TranscriptionModel: String, CaseIterable {
         }
     }
 
-    /// FluidAudio cache folder name for Parakeet models (nil for Whisper models).
-    /// Matches `Repo.folderName` in FluidAudio so `isDownloaded` and deletion see the
-    /// same directory the library downloads into.
-    var parakeetFolderName: String? {
+    /// FluidAudio checkpoint for Parakeet models (nil for Whisper models).
+    var parakeetVersion: AsrModelVersion? {
         switch self {
-        case .parakeetV2: return "parakeet-tdt-0.6b-v2-coreml"
-        case .parakeetV3: return "parakeet-tdt-0.6b-v3-coreml"
+        case .parakeetV2: return .v2
+        case .parakeetV3: return .v3
         default: return nil
         }
+    }
+
+    var family: ModelFamily {
+        parakeetVersion == nil ? .whisper : .parakeet
     }
 
     /// The base directory where models are stored (reads UserDefaults directly to avoid MainActor).
@@ -126,10 +117,7 @@ enum TranscriptionModel: String, CaseIterable {
             }
             return Self.whisperKitBase.appendingPathComponent(whisperVariant ?? "unknown")
         case .parakeetV2, .parakeetV3:
-            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("FluidAudio")
-                .appendingPathComponent("Models")
-                .appendingPathComponent(parakeetFolderName!)
+            return AsrModels.defaultCacheDirectory(for: parakeetVersion!)
         }
     }
 
@@ -174,6 +162,10 @@ enum TranscriptionModel: String, CaseIterable {
     /// Check if this model is downloaded by looking for files on disk
     var isDownloaded: Bool {
         let path = storagePath
+        // Ask FluidAudio directly so a partial download isn't mistaken for a complete one
+        if let parakeetVersion {
+            return AsrModels.modelsExist(at: path, version: parakeetVersion)
+        }
         guard FileManager.default.fileExists(atPath: path.path) else { return false }
         // Check if directory has content
         let contents = try? FileManager.default.contentsOfDirectory(atPath: path.path)
@@ -190,6 +182,47 @@ enum TranscriptionModel: String, CaseIterable {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "transcriptionModel")
+        }
+    }
+}
+
+// MARK: - Model Family
+
+/// A group of related models, shown as one expandable row in the model pickers.
+enum ModelFamily: CaseIterable {
+    case whisper
+    case parakeet
+
+    var name: String {
+        switch self {
+        case .whisper: return "Whisper"
+        case .parakeet: return "Parakeet"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .whisper: return "OpenAI's speech recognition"
+        case .parakeet: return "NVIDIA's speech recognition"
+        }
+    }
+
+    var models: [TranscriptionModel] {
+        TranscriptionModel.allCases.filter { $0.family == self }
+    }
+
+    /// Shown in the collapsed row when no model from this family is selected.
+    var defaultModel: TranscriptionModel {
+        switch self {
+        case .whisper: return .whisperBaseEn
+        case .parakeet: return .parakeetV3
+        }
+    }
+
+    var variantsSummary: String {
+        switch self {
+        case .whisper: return "\(models.count) sizes available"
+        case .parakeet: return "\(models.count) versions available"
         }
     }
 }
