@@ -15,6 +15,16 @@ final class OllamaRefinerTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Return only"), "Default prompt should request only the cleaned message")
     }
 
+    // MARK: - Request Body
+
+    func testRequestBodyDisablesThinkingAndStreaming() {
+        let body = OllamaRefiner.buildRequestBody(model: "gemma4:26b-mlx", prompt: "hello")
+        XCTAssertEqual(body["model"] as? String, "gemma4:26b-mlx")
+        XCTAssertEqual(body["prompt"] as? String, "hello")
+        XCTAssertEqual(body["stream"] as? Bool, false)
+        XCTAssertEqual(body["think"] as? Bool, false, "Thinking must be disabled so reasoning models answer immediately")
+    }
+
     // MARK: - Prompt Building
 
     func testBuildPromptUsesDefaultWhenNilCustomPrompt() {

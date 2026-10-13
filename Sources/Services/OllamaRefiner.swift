@@ -53,15 +53,25 @@ struct OllamaRefiner {
         return trimmed.isEmpty ? originalText : trimmed
     }
 
+    /// Build the JSON body for `/api/generate`.
+    ///
+    /// `think` is disabled explicitly: Ollama enables reasoning by default on thinking-capable
+    /// models (Gemma 4, Qwen 3.x, ...), which adds hundreds to thousands of hidden tokens per
+    /// request. For dictation cleanup that turns a sub-second response into 10-60 seconds and
+    /// routinely trips the 30s timeout. Ollama accepts `think: false` on non-thinking models too.
+    static func buildRequestBody(model: String, prompt: String) -> [String: Any] {
+        [
+            "model": model,
+            "prompt": prompt,
+            "stream": false,
+            "think": false
+        ]
+    }
+
     static func refine(text: String, baseURL: String, model: String, customPrompt: String? = nil, languageName: String? = nil) async throws -> String {
         let apiURL = try buildAPIURL(from: baseURL)
         let prompt = buildPrompt(text: text, customPrompt: customPrompt, languageName: languageName)
-
-        let body: [String: Any] = [
-            "model": model,
-            "prompt": prompt,
-            "stream": false
-        ]
+        let body = buildRequestBody(model: model, prompt: prompt)
 
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
