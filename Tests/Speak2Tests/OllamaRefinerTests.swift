@@ -118,6 +118,22 @@ final class OllamaRefinerTests: XCTestCase {
         XCTAssertEqual(result, "Hello there")
     }
 
+    func testParseResponseStripsInlineReasoning() throws {
+        let json: [String: Any] = ["response": "<think>\nThe user wants cleanup.\n</think>\n\nHello there"]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        let result = try OllamaRefiner.parseResponse(data: data, originalText: "um hello there")
+        XCTAssertEqual(result, "Hello there")
+    }
+
+    func testParseResponseFallsBackOnUnterminatedReasoning() throws {
+        let json: [String: Any] = ["response": "<think>The user wants cleanup, so I should"]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        let result = try OllamaRefiner.parseResponse(data: data, originalText: "um hello there")
+        XCTAssertEqual(result, "um hello there", "A cut-off reasoning block must never be pasted")
+    }
+
     func testParseResponseTrimsWhitespace() throws {
         let json: [String: Any] = ["response": "  Hello there  \n"]
         let data = try JSONSerialization.data(withJSONObject: json)

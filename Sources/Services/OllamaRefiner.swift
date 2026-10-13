@@ -49,8 +49,19 @@ struct OllamaRefiner {
             throw OllamaError.invalidResponse
         }
 
-        let trimmed = refined.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = stripReasoning(refined).trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? originalText : trimmed
+    }
+
+    /// Remove `<think>...</think>` blocks. Servers that predate the `think` option (and many
+    /// OpenAI-compatible servers) return a reasoning model's thoughts inline in the response text,
+    /// which must never be pasted into the user's document.
+    static func stripReasoning(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: "<think>[\\s\\S]*?(</think>|$)",
+            with: "",
+            options: .regularExpression
+        )
     }
 
     /// Build the JSON body for `/api/generate`.
