@@ -56,6 +56,18 @@ class StatusBarController {
         let statusMenuItem = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
+
+        if let error = appState.modelLoadError {
+            let errorItem = NSMenuItem(
+                title: "Couldn't load \(error.model.displayName)…",
+                action: #selector(openManageModels),
+                keyEquivalent: ""
+            )
+            errorItem.target = self
+            errorItem.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
+            menu.addItem(errorItem)
+        }
+
         menu.addItem(NSMenuItem.separator())
 
         // Model submenu
@@ -299,6 +311,14 @@ class StatusBarController {
             .combineLatest(AudioInputDeviceMonitor.shared.$systemDefault, appState.$preferredInputDeviceUID)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _, _, _ in
+                self?.setupMenu()
+            }
+            .store(in: &cancellables)
+
+        // Show or clear the model load failure line
+        appState.$modelLoadError
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
                 self?.setupMenu()
             }
             .store(in: &cancellables)

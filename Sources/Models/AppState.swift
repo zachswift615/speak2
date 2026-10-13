@@ -192,6 +192,11 @@ enum TranscriptionModel: String, CaseIterable {
     }
 }
 
+struct ModelLoadError: Equatable {
+    let model: TranscriptionModel
+    let message: String
+}
+
 // MARK: - Model Family
 
 /// A group of related models, shown as one expandable row in the model pickers.
@@ -418,6 +423,8 @@ class AppState: ObservableObject {
     @Published var hasMicrophonePermission: Bool = false
     @Published var modelDownloadProgress: Double = 0.0
     @Published var lastError: String? = nil
+    /// Why the most recent model download/load failed; cleared when a load starts.
+    @Published var modelLoadError: ModelLoadError? = nil
     @Published var isLLMModelDownloading: Bool = false
     @Published var llmDownloadProgress: Double = 0.0
 

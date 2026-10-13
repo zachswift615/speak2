@@ -34,6 +34,8 @@ class ModelManager: ObservableObject {
 
     /// Load the specified model, unloading any currently loaded model first
     func loadModel(_ model: TranscriptionModel, progressHandler: @escaping (Double) -> Void) async throws {
+        let previousModel = appState.currentlyLoadedModel
+
         // Unload current model if different
         if let current = appState.currentlyLoadedModel, current != model {
             await unloadCurrentModel()
@@ -47,8 +49,38 @@ class ModelManager: ObservableObject {
 
         appState.isModelLoaded = false
         appState.modelDownloadProgress = 0.0
+        appState.modelLoadError = nil
         appState.recordingState = .loadingModel
 
+        do {
+            try await loadEngine(for: model, progressHandler: progressHandler)
+        } catch {
+            // Never leave the app stuck in .loadingModel, and keep dictation working with the
+            // model that was loaded before, if any
+            appState.modelDownloadProgress = 0.0
+            appState.modelLoadError = ModelLoadError(model: model, message: error.localizedDescription)
+            if let previousModel, previousModel != model,
+               (try? await loadEngine(for: previousModel, progressHandler: { _ in })) != nil {
+                markLoaded(previousModel)
+            } else {
+                appState.recordingState = .idle
+            }
+            throw error
+        }
+
+        markLoaded(model)
+    }
+
+    private func markLoaded(_ model: TranscriptionModel) {
+        appState.currentlyLoadedModel = model
+        appState.selectedModel = model
+        TranscriptionModel.saved = model
+        appState.isModelLoaded = true
+        appState.recordingState = .idle
+        appState.refreshDownloadedModels()
+    }
+
+    private func loadEngine(for model: TranscriptionModel, progressHandler: @escaping (Double) -> Void) async throws {
         switch model {
         case .whisperTinyEn, .whisperBaseEn, .whisperSmallEn, .whisperLargeV3, .whisperLargeV3Turbo:
             let variant = model.whisperVariant!
@@ -78,13 +110,6 @@ class ModelManager: ObservableObject {
             }
             parakeetTranscriber = transcriber
         }
-
-        appState.currentlyLoadedModel = model
-        appState.selectedModel = model
-        TranscriptionModel.saved = model
-        appState.isModelLoaded = true
-        appState.recordingState = .idle
-        appState.refreshDownloadedModels()
     }
 
     /// Unload the currently loaded model to free memory

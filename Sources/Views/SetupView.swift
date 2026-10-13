@@ -105,6 +105,14 @@ struct SetupView: View {
                 .background(Color(NSColor.textBackgroundColor).opacity(0.5))
                 .cornerRadius(8)
 
+                if let error = appState.modelLoadError {
+                    ModelLoadErrorRow(
+                        error: error,
+                        onRetry: { downloadModel(error.model) },
+                        onDismiss: { appState.modelLoadError = nil }
+                    )
+                }
+
                 Divider()
                     .padding(.vertical, 4)
 
@@ -204,8 +212,8 @@ struct SetupView: View {
                     downloadingModel = nil
                 }
             } catch {
+                // ModelManager records the failure in appState.modelLoadError for display
                 await MainActor.run {
-                    appState.lastError = error.localizedDescription
                     downloadingModel = nil
                 }
             }
@@ -452,6 +460,47 @@ struct ModelStatusView: View {
                     .frame(width: 60, alignment: .trailing)
             }
         }
+    }
+}
+
+// MARK: - Model Load Error Row
+
+/// Explains why a model failed to download or load, with a way to retry.
+struct ModelLoadErrorRow: View {
+    let error: ModelLoadError
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Couldn't load \(error.model.displayName)")
+                    .fontWeight(.medium)
+                Text(error.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            Button("Try Again", action: onRetry)
+                .controlSize(.small)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.1))
+        .cornerRadius(8)
     }
 }
 

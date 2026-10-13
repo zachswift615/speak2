@@ -13,29 +13,39 @@ struct ModelsSettingsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // Models Section
                 SettingsSection(title: "Speech Recognition Models") {
-                    VStack(spacing: 0) {
-                        ForEach(ModelFamily.allCases, id: \.self) { family in
-                            if family != ModelFamily.allCases.first {
-                                Divider()
-                                    .padding(.leading, 32)
-                            }
+                    VStack(spacing: 8) {
+                        VStack(spacing: 0) {
+                            ForEach(ModelFamily.allCases, id: \.self) { family in
+                                if family != ModelFamily.allCases.first {
+                                    Divider()
+                                        .padding(.leading, 32)
+                                }
 
-                            ModelGroupSection(
-                                family: family,
-                                isExpanded: expansionBinding(for: family),
-                                selectedModel: appState.selectedModel,
-                                downloadingModel: downloadingModel,
-                                downloadedModels: appState.downloadedModels,
-                                currentlyLoadedModel: appState.currentlyLoadedModel,
-                                progress: appState.modelDownloadProgress,
-                                onSelect: selectModel,
-                                onDownload: confirmAndDownload,
-                                onDelete: deleteModel
+                                ModelGroupSection(
+                                    family: family,
+                                    isExpanded: expansionBinding(for: family),
+                                    selectedModel: appState.selectedModel,
+                                    downloadingModel: downloadingModel,
+                                    downloadedModels: appState.downloadedModels,
+                                    currentlyLoadedModel: appState.currentlyLoadedModel,
+                                    progress: appState.modelDownloadProgress,
+                                    onSelect: selectModel,
+                                    onDownload: confirmAndDownload,
+                                    onDelete: deleteModel
+                                )
+                            }
+                        }
+                        .background(Color(NSColor.textBackgroundColor).opacity(0.5))
+                        .cornerRadius(8)
+
+                        if let error = appState.modelLoadError {
+                            ModelLoadErrorRow(
+                                error: error,
+                                onRetry: { downloadModel(error.model) },
+                                onDismiss: { appState.modelLoadError = nil }
                             )
                         }
                     }
-                    .background(Color(NSColor.textBackgroundColor).opacity(0.5))
-                    .cornerRadius(8)
                 }
 
                 // Transcription Language Section
@@ -124,8 +134,8 @@ struct ModelsSettingsView: View {
                     downloadingModel = nil
                 }
             } catch {
+                // ModelManager records the failure in appState.modelLoadError for display
                 await MainActor.run {
-                    appState.lastError = error.localizedDescription
                     downloadingModel = nil
                 }
             }
