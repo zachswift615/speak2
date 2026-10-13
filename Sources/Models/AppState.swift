@@ -437,7 +437,7 @@ enum ExternalAPIFormat: String, CaseIterable {
 @MainActor
 class AppState: ObservableObject {
     static let shared = AppState()
-    static let appVersion = "1.10.0"
+    static let appVersion = "1.11.0"
 
     @Published var recordingState: RecordingState = .idle
     @Published var isModelLoaded: Bool = false
